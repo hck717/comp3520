@@ -119,10 +119,17 @@ Rules:
         # Build MERGE statements for nodes
         node_merges = []
         for node in schema["nodes"]:
-            # Format: SET n.`From Bank` = row.`From Bank`
-            props = ", ".join([f"{self._escape_key(p)}: row.{self._escape_key(p)}" for p in node["properties"]])
-            merge = f"""MERGE ({node['label'].lower()}:{node['label']} {{id: toString(row.{self._escape_key(node['id_column'])})}})
-            ON CREATE SET {node['label'].lower()}.{props}"""
+            # SAFE GET: Use .get("properties", []) to handle missing keys from LLM
+            props_list = node.get("properties", [])
+            props = ", ".join([f"{self._escape_key(p)}: row.{self._escape_key(p)}" for p in props_list])
+            
+            # Construct MERGE
+            merge = f"""MERGE ({node['label'].lower()}:{node['label']} {{id: toString(row.{self._escape_key(node['id_column'])})}})"""
+            
+            # Only add ON CREATE SET if there are properties to set
+            if props:
+                merge += f"\n            ON CREATE SET {node['label'].lower()}.{props}"
+                
             node_merges.append(merge)
         
         # Build CREATE statements for relationships
