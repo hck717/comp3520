@@ -36,13 +36,13 @@ class DataIngestor:
         """
         print(f"Loading Transactions from {file_path}...")
         
-        # Schema: Timestamp, From Bank, Account, To Bank, Account, Amount Received, Receiving Currency, Amount Paid, Payment Currency, Is Laundering
+        # Schema: Timestamp, From Bank, Account, To Bank, Account, Amount Received, Receiving Currency, Amount Paid, Payment Currency, Payment Format, Is Laundering
         df = pd.read_csv(file_path, nrows=limit)
         
         # Rename columns to standard keys
         df.columns = [
             "timestamp", "from_bank", "from_account", "to_bank", "to_account", 
-            "amount_received", "receiving_currency", "amount_paid", "payment_currency", "is_laundering"
+            "amount_received", "receiving_currency", "amount_paid", "payment_currency", "payment_format", "is_laundering"
         ]
 
         query = """
@@ -56,6 +56,7 @@ class DataIngestor:
         CREATE (source)-[:TRANSFERRED {
             amount: toFloat(row.amount_paid),
             currency: row.payment_currency,
+            format: row.payment_format,
             timestamp: row.timestamp,
             is_laundering: toInteger(row.is_laundering)
         }]->(target)
