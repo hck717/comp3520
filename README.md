@@ -6,6 +6,7 @@ This project sets up a realistic banking data foundation for an Anti-Money Laund
 - **Python 3.10+**
 - **Docker Desktop** (for running Neo4j)
 - **Dataset**: Download `LI-Small_Trans.csv` from [Kaggle](https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml?select=LI-Small_Trans.csv) and place it in the `data/` folder.
+- **Optional (for Agentic Ingestion)**: Anthropic API Key from [console.anthropic.com](https://console.anthropic.com/)
 
 ## 2. Setup & Installation
 
@@ -25,13 +26,73 @@ docker run -d --name neo4j-mvp \
 pip install -r requirements.txt
 ```
 
-### Step 3: Run Data Ingestion
-This script loads 50k transactions and generates synthetic companies/beneficial owners for the involved accounts.
+## 3. Data Ingestion (Choose Your Approach)
+
+You have **two options** for ingesting data into Neo4j:
+
+### Option A: Hardcoded Ingestion (Recommended for Production)
+This is the **fast, deterministic** approach with explicit schema control. Best for high-volume financial data.
+
 ```bash
 python src/ingest_layer_a.py
 ```
 
-## 3. Verify & Explore the Graph
+**What it does:**
+- Loads 50k transactions from the IBM AML dataset
+- Creates `Account` nodes and `TRANSFERRED` relationships
+- Generates synthetic `Entity` (Company/Person) nodes using Faker
+- Links entities to accounts via `OWNS` relationships
+
+---
+
+### Option B: Agentic Ingestion (Experimental - LLM-Powered)
+This is the **autonomous** approach where an LLM analyzes your CSV and decides the schema for you.
+
+**Setup:**
+1. Get your Anthropic API key from [console.anthropic.com](https://console.anthropic.com/)
+2. Set it as an environment variable:
+   ```bash
+   export ANTHROPIC_API_KEY="sk-ant-..."
+   ```
+
+**Run the agent:**
+```bash
+python src/ingest_agent.py
+```
+
+**What it does:**
+1. 📊 **Analyzes CSV**: The LLM reads the first 10 rows and column types
+2. 🤖 **Infers Schema**: Claude proposes nodes (e.g., `Account`, `Bank`) and relationships (e.g., `SENT_MONEY`)
+3. 🔧 **Generates Cypher**: Automatically writes the `MERGE` and `CREATE` statements
+4. 📥 **Executes Import**: Loads 5k rows as a proof-of-concept
+
+**Example LLM Output:**
+```json
+{
+  "nodes": [
+    {"label": "Account", "id_column": "from_account", "properties": ["from_bank"]},
+    {"label": "Account", "id_column": "to_account", "properties": ["to_bank"]}
+  ],
+  "relationships": [
+    {
+      "type": "TRANSFERRED",
+      "from_node": "Account",
+      "to_node": "Account",
+      "properties": ["amount_paid", "payment_currency", "timestamp"]
+    }
+  ]
+}
+```
+
+**Why use this?**
+- ✅ **Zero schema design**: Just point it at a CSV
+- ✅ **Adapts to new datasets**: Works on any tabular data
+- ❌ **Slower**: LLM API calls add latency
+- ❌ **Non-deterministic**: Schema may vary between runs
+
+---
+
+## 4. Verify & Explore the Graph
 Once ingestion is complete, open the **Neo4j Browser** at:
 👉 **[http://localhost:7474](http://localhost:7474)**
 *   **Username**: `neo4j`
@@ -91,3 +152,23 @@ ORDER BY t.amount DESC LIMIT 10
 CALL apoc.meta.stats() YIELD labels, relTypes
 RETURN labels, relTypes
 ```
+
+**7. Compare Hardcoded vs Agentic Results** (If you ran both)
+*See what schema the LLM chose vs your hardcoded version.*
+```cypher
+CALL db.schema.visualization()
+```
+
+---
+
+## 5. Architecture: Hardcoded vs Agentic
+
+| Aspect | Hardcoded (`ingest_layer_a.py`) | Agentic (`ingest_agent.py`) |
+|--------|----------------------------------|------------------------------|
+| **Speed** | ⚡ Fast (5k rows/sec) | 🐢 Slow (LLM latency) |
+| **Control** | 🎯 Explicit schema | 🤖 LLM decides |
+| **Best for** | Production, large datasets | Exploration, new datasets |
+| **Repeatability** | ✅ 100% consistent | ⚠️ May vary (LLM creativity) |
+| **Setup** | Zero config | Requires API key |
+
+**Recommendation**: Use **hardcoded** for your FYP's transaction data. Use **agentic** when you add unstructured news/documents in Layer B/C.
