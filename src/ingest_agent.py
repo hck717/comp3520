@@ -30,7 +30,7 @@ class AgenticDataIngestor:
                 "model": OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False,
-                "format": "json"  # Enforce JSON mode if supported by model version
+                "format": "json"
             })
             response.raise_for_status()
             return response.json()['response']
@@ -76,7 +76,7 @@ Return ONLY a JSON object (no markdown, no explanation) with this structure:
 }}
 
 Rules:
-- Use existing column names exactly as they appear
+- Use existing column names exactly as they appear (even with spaces)
 - Create meaningful relationship types in UPPERCASE
 - If a column looks like an ID/Account/Entity, make it a node
 - Transaction details become relationship properties
@@ -88,7 +88,7 @@ Rules:
         if not response_text:
             raise Exception("Failed to get response from Ollama")
 
-        # Clean response if needed (Ollama usually returns pure JSON with format="json" but safety first)
+        # Clean response if needed
         response_text = response_text.strip()
         if response_text.startswith("```"):
              response_text = response_text.split("\n", 1)[1].rsplit("\n```", 1)[0]
@@ -103,17 +103,25 @@ Rules:
             print(response_text)
             raise
 
+    def _escape_key(self, key):
+        """Helper to wrap keys with spaces in backticks for Cypher."""
+        if " " in key or "." in key:
+            return f"`{key}`"
+        return key
+
     def generate_cypher(self, schema):
         """
         Step 2: Generate Cypher query from the inferred schema.
+        Now handles column names with spaces by escaping them.
         """
         print("\n🔧 Generating Cypher query...")
         
         # Build MERGE statements for nodes
         node_merges = []
         for node in schema["nodes"]:
-            props = ", ".join([f"{p}: row.{p}" for p in node["properties"]])
-            merge = f"""MERGE ({node['label'].lower()}:{node['label']} {{id: toString(row.{node['id_column']})}})
+            # Format: SET n.`From Bank` = row.`From Bank`
+            props = ", ".join([f"{self._escape_key(p)}: row.{self._escape_key(p)}" for p in node["properties"]])
+            merge = f"""MERGE ({node['label'].lower()}:{node['label']} {{id: toString(row.{self._escape_key(node['id_column'])})}})
             ON CREATE SET {node['label'].lower()}.{props}"""
             node_merges.append(merge)
         
@@ -122,7 +130,7 @@ Rules:
         for rel in schema["relationships"]:
             from_label = rel["from_node"].lower()
             to_label = rel["to_node"].lower()
-            props = ", ".join([f"{p}: row.{p}" for p in rel.get("properties", [])])
+            props = ", ".join([f"{self._escape_key(p)}: row.{self._escape_key(p)}" for p in rel.get("properties", [])])
             props_clause = f" {{{props}}}" if props else ""
             create = f"CREATE ({from_label})-[:{rel['type']}{props_clause}]->({to_label})"
             rel_creates.append(create)
@@ -158,7 +166,6 @@ if __name__ == "__main__":
         print(f"❌ Error: {DATA_FILE} not found.")
         exit(1)
     
-    # Check if Ollama is reachable
     try:
         requests.get(OLLAMA_URL.replace("/api/generate", ""))
     except:
@@ -171,7 +178,7 @@ if __name__ == "__main__":
     # Step 1: Let the LLM analyze the CSV and propose a schema
     schema = agent.analyze_csv(DATA_FILE, sample_rows=10)
     
-    # Step 2 & 3: Generate Cypher and ingest (use a small sample for demo)
+    # Step 2 & 3: Generate Cypher and ingest
     agent.ingest_with_schema(DATA_FILE, schema, limit=5000)
     
     agent.close()
