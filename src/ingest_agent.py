@@ -121,15 +121,17 @@ Rules:
         for node in schema["nodes"]:
             # SAFE GET: Use .get("properties", []) to handle missing keys from LLM
             props_list = node.get("properties", [])
-            # FIX: Use '=' instead of ':' for SET clause
-            props = ", ".join([f"{self._escape_key(p)} = row.{self._escape_key(p)}" for p in props_list])
+            node_alias = node['label'].lower()
+            
+            # FIX: Apply alias to EVERY property in the list (e.g. bank.`To Bank`, bank.`Amount Received`)
+            props = ", ".join([f"{node_alias}.{self._escape_key(p)} = row.{self._escape_key(p)}" for p in props_list])
             
             # Construct MERGE
-            merge = f"""MERGE ({node['label'].lower()}:{node['label']} {{id: toString(row.{self._escape_key(node['id_column'])})}})"""
+            merge = f"""MERGE ({node_alias}:{node['label']} {{id: toString(row.{self._escape_key(node['id_column'])})}})"""
             
             # Only add ON CREATE SET if there are properties to set
             if props:
-                merge += f"\n            ON CREATE SET {node['label'].lower()}.{props}"
+                merge += f"\n            ON CREATE SET {props}"
                 
             node_merges.append(merge)
         
