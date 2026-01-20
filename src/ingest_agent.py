@@ -121,7 +121,8 @@ Rules:
         for node in schema["nodes"]:
             # SAFE GET: Use .get("properties", []) to handle missing keys from LLM
             props_list = node.get("properties", [])
-            props = ", ".join([f"{self._escape_key(p)}: row.{self._escape_key(p)}" for p in props_list])
+            # FIX: Use '=' instead of ':' for SET clause
+            props = ", ".join([f"{self._escape_key(p)} = row.{self._escape_key(p)}" for p in props_list])
             
             # Construct MERGE
             merge = f"""MERGE ({node['label'].lower()}:{node['label']} {{id: toString(row.{self._escape_key(node['id_column'])})}})"""
@@ -137,7 +138,9 @@ Rules:
         for rel in schema["relationships"]:
             from_label = rel["from_node"].lower()
             to_label = rel["to_node"].lower()
-            props = ", ".join([f"{self._escape_key(p)}: row.{self._escape_key(p)}" for p in rel.get("properties", [])])
+            props_list = rel.get("properties", [])
+            # FIX: Use ':' for property map inside CREATE
+            props = ", ".join([f"{self._escape_key(p)}: row.{self._escape_key(p)}" for p in props_list])
             props_clause = f" {{{props}}}" if props else ""
             create = f"CREATE ({from_label})-[:{rel['type']}{props_clause}]->({to_label})"
             rel_creates.append(create)
