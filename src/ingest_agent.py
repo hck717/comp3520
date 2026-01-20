@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 from neo4j import GraphDatabase
-import anthropic
+import requests
 from tqdm import tqdm
 import json
 
@@ -9,19 +9,35 @@ import json
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PWD = os.getenv("NEO4J_PASSWORD", "password")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")  # Get from https://console.anthropic.com/
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2") 
 
 class AgenticDataIngestor:
     """
-    Autonomous CSV-to-Graph ingestion using an LLM to infer schema and generate Cypher.
+    Autonomous CSV-to-Graph ingestion using local LLM (Ollama) to infer schema and generate Cypher.
     This is the "Agentic" approach - the LLM decides how to model the data.
     """
     def __init__(self):
         self.driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PWD))
-        self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     def close(self):
         self.driver.close()
+
+    def query_ollama(self, prompt):
+        """Sends prompt to local Ollama instance and gets response."""
+        try:
+            response = requests.post(OLLAMA_URL, json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "format": "json"  # Enforce JSON mode if supported by model version
+            })
+            response.raise_for_status()
+            return response.json()['response']
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Error communicating with Ollama: {e}")
+            print("   Make sure Ollama is running: 'ollama serve' or check URL.")
+            return None
 
     def analyze_csv(self, file_path, sample_rows=5):
         """
@@ -66,22 +82,26 @@ Rules:
 - Transaction details become relationship properties
 """
 
-        print("🤖 Asking LLM to infer schema...")
-        response = self.client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=2000,
-            messages=[{"role": "user", "content": prompt}]
-        )
+        print(f"🤖 Asking local LLM ({OLLAMA_MODEL}) to infer schema...")
+        response_text = self.query_ollama(prompt)
         
-        schema_text = response.content[0].text.strip()
-        # Remove potential markdown code fences
-        if schema_text.startswith("```"):
-            schema_text = schema_text.split("\n", 1)[1].rsplit("\n```", 1)[0]
-        
-        schema = json.loads(schema_text)
-        print("\n✅ Schema inferred:")
-        print(json.dumps(schema, indent=2))
-        return schema
+        if not response_text:
+            raise Exception("Failed to get response from Ollama")
+
+        # Clean response if needed (Ollama usually returns pure JSON with format="json" but safety first)
+        response_text = response_text.strip()
+        if response_text.startswith("```"):
+             response_text = response_text.split("\n", 1)[1].rsplit("\n```", 1)[0]
+
+        try:
+            schema = json.loads(response_text)
+            print("\n✅ Schema inferred:")
+            print(json.dumps(schema, indent=2))
+            return schema
+        except json.JSONDecodeError:
+            print("❌ Error parsing JSON from LLM. Raw output:")
+            print(response_text)
+            raise
 
     def generate_cypher(self, schema):
         """
@@ -132,17 +152,20 @@ Rules:
         print(f"✅ Agentic ingestion complete: {len(df)} rows")
 
 if __name__ == "__main__":
-    if not ANTHROPIC_API_KEY:
-        print("❌ Error: Set ANTHROPIC_API_KEY environment variable.")
-        print("   Get your key from: https://console.anthropic.com/")
-        exit(1)
-    
     DATA_FILE = "data/LI-Small_Trans.csv"
     
     if not os.path.exists(DATA_FILE):
         print(f"❌ Error: {DATA_FILE} not found.")
         exit(1)
     
+    # Check if Ollama is reachable
+    try:
+        requests.get(OLLAMA_URL.replace("/api/generate", ""))
+    except:
+        print(f"❌ Error: Cannot connect to Ollama at {OLLAMA_URL}")
+        print("   Please run: 'ollama serve' and 'ollama run llama3.2'")
+        exit(1)
+
     agent = AgenticDataIngestor()
     
     # Step 1: Let the LLM analyze the CSV and propose a schema
