@@ -6,7 +6,7 @@ This project sets up a realistic banking data foundation for an Anti-Money Laund
 - **Python 3.10+**
 - **Docker Desktop** (for running Neo4j)
 - **Dataset**: Download `LI-Small_Trans.csv` from [Kaggle](https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml?select=LI-Small_Trans.csv) and place it in the `data/` folder.
-- **Optional (for Agentic Ingestion)**: Anthropic API Key from [console.anthropic.com](https://console.anthropic.com/)
+- **Optional (for Agentic Ingestion)**: [Ollama](https://ollama.com) installed with Llama 3.2.
 
 ## 2. Setup & Installation
 
@@ -45,26 +45,33 @@ python src/ingest_layer_a.py
 
 ---
 
-### Option B: Agentic Ingestion (Experimental - LLM-Powered)
-This is the **autonomous** approach where an LLM analyzes your CSV and decides the schema for you.
+### Option B: Agentic Ingestion (Experimental - Local LLM)
+This is the **autonomous** approach where a local LLM (Llama 3.2 via Ollama) analyzes your CSV and decides the schema for you.
 
 **Setup:**
-1. Get your Anthropic API key from [console.anthropic.com](https://console.anthropic.com/)
-2. Set it as an environment variable:
+1. Install [Ollama](https://ollama.com).
+2. Pull the model (Llama 3.2 is recommended for speed/quality balance):
    ```bash
-   export ANTHROPIC_API_KEY="sk-ant-..."
+   ollama pull llama3.2
+   ```
+3. Start the Ollama server:
+   ```bash
+   ollama serve
    ```
 
 **Run the agent:**
 ```bash
+# Optional: Set model if different from llama3.2
+export OLLAMA_MODEL="llama3.2"
+
 python src/ingest_agent.py
 ```
 
 **What it does:**
-1. 📊 **Analyzes CSV**: The LLM reads the first 10 rows and column types
-2. 🤖 **Infers Schema**: Claude proposes nodes (e.g., `Account`, `Bank`) and relationships (e.g., `SENT_MONEY`)
-3. 🔧 **Generates Cypher**: Automatically writes the `MERGE` and `CREATE` statements
-4. 📥 **Executes Import**: Loads 5k rows as a proof-of-concept
+1. 📊 **Analyzes CSV**: The script reads the first 10 rows and sends a prompt to your local Ollama.
+2. 🤖 **Infers Schema**: Llama 3.2 proposes nodes (e.g., `Account`, `Bank`) and relationships (e.g., `SENT_MONEY`) in JSON format.
+3. 🔧 **Generates Cypher**: Automatically writes the `MERGE` and `CREATE` statements.
+4. 📥 **Executes Import**: Loads 5k rows as a proof-of-concept.
 
 **Example LLM Output:**
 ```json
@@ -85,10 +92,10 @@ python src/ingest_agent.py
 ```
 
 **Why use this?**
-- ✅ **Zero schema design**: Just point it at a CSV
-- ✅ **Adapts to new datasets**: Works on any tabular data
-- ❌ **Slower**: LLM API calls add latency
-- ❌ **Non-deterministic**: Schema may vary between runs
+- ✅ **Privacy**: Your data never leaves your machine.
+- ✅ **Zero Cost**: No API fees.
+- ✅ **Zero schema design**: Just point it at a CSV.
+- ❌ **Slower**: Dependent on your local hardware.
 
 ---
 
@@ -165,10 +172,9 @@ CALL db.schema.visualization()
 
 | Aspect | Hardcoded (`ingest_layer_a.py`) | Agentic (`ingest_agent.py`) |
 |--------|----------------------------------|------------------------------|
-| **Speed** | ⚡ Fast (5k rows/sec) | 🐢 Slow (LLM latency) |
+| **Speed** | ⚡ Fast (5k rows/sec) | 🐢 Slower (Local inference) |
 | **Control** | 🎯 Explicit schema | 🤖 LLM decides |
-| **Best for** | Production, large datasets | Exploration, new datasets |
-| **Repeatability** | ✅ 100% consistent | ⚠️ May vary (LLM creativity) |
-| **Setup** | Zero config | Requires API key |
+| **Privacy** | 🔒 Local | 🔒 Local (Ollama) |
+| **Setup** | Zero config | Requires Ollama installed |
 
 **Recommendation**: Use **hardcoded** for your FYP's transaction data. Use **agentic** when you add unstructured news/documents in Layer B/C.
