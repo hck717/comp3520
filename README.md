@@ -6,7 +6,7 @@ This project sets up a realistic banking data foundation for an Anti-Money Laund
 - **Python 3.10+**
 - **Docker Desktop** (for running Neo4j)
 - **Dataset**: Download `LI-Small_Trans.csv` from [Kaggle](https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml?select=LI-Small_Trans.csv) and place it in the `data/` folder.
-- **Optional (for Agentic Ingestion)**: [Ollama](https://ollama.com) installed with Llama 3.2.
+- **Ollama**: Required for the AI Agent API and Agentic Ingestion. Pull Llama 3.2: `ollama pull llama3.2`
 
 ## 2. Setup & Installation
 
@@ -73,33 +73,40 @@ python src/ingest_agent.py
 3. 🔧 **Generates Cypher**: Automatically writes the `MERGE` and `CREATE` statements.
 4. 📥 **Executes Import**: Loads 5k rows as a proof-of-concept.
 
-**Example LLM Output:**
+---
+
+## 4. Run the AI Agent API
+
+The project includes a **FastAPI** service that allows you to chat with your graph data using natural language. The agent converts your questions into Cypher queries and summarizes the results.
+
+### Step 1: Start the Server
+Make sure Neo4j is running and data is ingested.
+```bash
+python src/api.py
+```
+The API will start at `http://0.0.0.0:8000`.
+
+### Step 2: Chat with the Graph
+You can use `curl` or any HTTP client to send requests.
+
+**Example Request:**
+```bash
+curl -X POST "http://localhost:8000/chat" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "Find all accounts owned by companies in High Risk Jurisdictions that sent more than 10000 dollars"}'
+```
+
+**Example Response:**
 ```json
 {
-  "nodes": [
-    {"label": "Account", "id_column": "from_account", "properties": ["from_bank"]},
-    {"label": "Account", "id_column": "to_account", "properties": ["to_bank"]}
-  ],
-  "relationships": [
-    {
-      "type": "TRANSFERRED",
-      "from_node": "Account",
-      "to_node": "Account",
-      "properties": ["amount_paid", "payment_currency", "timestamp"]
-    }
-  ]
+  "answer": "I found 3 accounts matching your criteria. The companies are...",
+  "generated_cypher": "MATCH (e:Entity)-[:OWNS]->(a:Account)..."
 }
 ```
 
-**Why use this?**
-- ✅ **Privacy**: Your data never leaves your machine.
-- ✅ **Zero Cost**: No API fees.
-- ✅ **Zero schema design**: Just point it at a CSV.
-- ❌ **Slower**: Dependent on your local hardware.
-
 ---
 
-## 4. Verify & Explore the Graph
+## 5. Verify & Explore the Graph
 Once ingestion is complete, open the **Neo4j Browser** at:
 👉 **[http://localhost:7474](http://localhost:7474)**
 *   **Username**: `neo4j`
@@ -168,7 +175,7 @@ CALL db.schema.visualization()
 
 ---
 
-## 5. Architecture: Hardcoded vs Agentic
+## 6. Architecture: Hardcoded vs Agentic
 
 | Aspect | Hardcoded (`ingest_layer_a.py`) | Agentic (`ingest_agent.py`) |
 |--------|----------------------------------|------------------------------|
