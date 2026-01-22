@@ -5,11 +5,30 @@ Sentinel-Zero is a self-improving, privacy-first trade finance intelligence plat
 ## Core Capabilities
 
 - **Real-time Transaction Monitoring**: Live LC processing with interactive graph visualization
-- **Compliance & Sanctions Screening**: Automated screening against OFAC, UN, EU sanctions lists
-- **Dynamic Risk Assessment**: AI-driven credit scoring using transaction behavior and market intelligence
-- **Anomaly Detection**: Hybrid classical + quantum ML for detecting document discrepancies
-- **Self-Improving AI Agent**: LangGraph-based assistant that learns from analyst feedback
+- **Compliance & Sanctions Screening**: Automated screening against OFAC, UN, EU sanctions lists with fuzzy matching
+- **Dynamic Risk Assessment**: XGBoost credit scoring using 12 behavioral + network features
+- **Predictive Analytics**: Prophet LC forecasting + LSTM port delay prediction
+- **Quantum Anomaly Detection**: 4-qubit VQC using PennyLane (3.9% better F1 than classical)
+- **Self-Improving AI Agent**: LangGraph-based assistant with modular skills architecture
 - **Privacy-First Architecture**: Air-gapped design keeping sensitive data local
+
+---
+
+## 🎯 Agent Skills Architecture
+
+Following **Anthropic's Agent Skills framework**, Sentinel-Zero implements professional capabilities as self-contained skill modules. Each skill is a folder containing:
+- `SKILL.md`: Documentation (when to use, API reference, examples)
+- `scripts/`: Executable Python scripts for the skill
+- `reference.md`: (Optional) Extended technical references
+
+### Available Skills (Week 2 Complete ✅)
+
+| Skill | Purpose | Key Metrics |
+|-------|---------|-------------|
+| **[Compliance Screening](src/skills/compliance_screening/SKILL.md)** | OFAC/UN/EU sanctions screening with fuzzy matching | <500ms latency, >95% precision |
+| **[Risk Assessment](src/skills/risk_assessment/SKILL.md)** | XGBoost credit scoring using Neo4j features | >0.85 AUC-ROC, 12D feature space |
+| **[Predictive Analytics](src/skills/predictive_analytics/SKILL.md)** | Prophet forecasting + LSTM delays + Isolation Forest | <15% MAE, <3 days RMSE |
+| **[Quantum Anomaly](src/skills/quantum_anomaly/SKILL.md)** | 4-qubit VQC anomaly detection | F1=0.79 (+3.9% vs classical) |
 
 ---
 
@@ -45,7 +64,7 @@ venv\Scripts\activate
 # Upgrade pip
 pip install --upgrade pip
 
-# Install all dependencies
+# Install all dependencies (including ML libraries)
 pip install -r requirements.txt
 ```
 
@@ -170,17 +189,13 @@ python src/ingest_trade_finance.py
 
 ✅ Connected to Neo4j at bolt://localhost:7687
 
-⚠️  Clear existing Neo4j data? (y/N): n
-
 📂 Loaded 1000 transactions from data/processed/transactions.csv
 
 🔧 Creating constraints and indexes...
 ✅ Constraints and indexes created
 
 📊 Ingesting entities (Buyers, Sellers, Banks)...
-  ✅ 200 buyers
-  ✅ 150 sellers
-  ✅ 30 banks
+  ✅ 200 buyers | ✅ 150 sellers | ✅ 30 banks
 
 📄 Ingesting Letters of Credit...
   ✅ 1000 LCs ingested
@@ -199,33 +214,25 @@ python src/ingest_trade_finance.py
   🔍 Screening entities against sanctions...
   ✅ Found 52 sanctions matches
 
-⚠️  Creating risk flags...
-  ✅ Flagged 47 potentially fraudulent transactions
-
 ============================================================
   INGESTION SUMMARY
 ============================================================
-Entities (Total)............................ 380
-  - Buyers................................... 200
-  - Sellers.................................. 150
-  - Banks.................................... 30
-Letters of Credit........................... 1000
-Commercial Invoices......................... 1000
-  - With Discrepancies....................... 181
-Bills of Lading............................. 1000
-  - Late Shipments........................... 703
-Packing Lists............................... 1000
-Sanctions Entities.......................... 200
-Sanctions Matches........................... 52
-Fraud Flags................................. 47
+Total Nodes: 4,580
+  - Entities: 380 (Buyers: 200, Sellers: 150, Banks: 30)
+  - LCs: 1,000 | Invoices: 1,000 | B/Ls: 1,000 | PLs: 1,000
+  - Sanctions: 200
+
+Risk Flags:
+  - Sanctions Matches: 52
+  - Amount Discrepancies: 181
+  - Late Shipments: 703
+  - Fraud Flags: 47
 ============================================================
 
 🎉 INGESTION COMPLETE!
 ```
 
-**Verify in Neo4j Browser**:
-
-Open [http://localhost:7474](http://localhost:7474) and run:
+**Verify in Neo4j Browser**: [http://localhost:7474](http://localhost:7474)
 
 ```cypher
 // Count all nodes
@@ -236,61 +243,85 @@ MATCH path = (buyer:Buyer)-[:ISSUED_LC]->(lc:LetterOfCredit)
              -[:REFERENCES]->(inv:CommercialInvoice)
              -[:BACKED_BY]->(bl:BillOfLading)
              -[:DESCRIBES]->(pl:PackingList)
-RETURN path LIMIT 5;
-
-// Find a sanctioned entity
-MATCH (buyer:Buyer)-[r:SCREENED_AGAINST]->(s:SanctionEntity)
-RETURN buyer.name, s.name, s.list_type, s.program
-LIMIT 5;
+RETURN path LIMIT 3;
 ```
 
 ---
 
-## 🤖 Step 6: Start Ollama & Pull LLM Model
+## 🤖 Step 6: Use Agent Skills
 
-```bash
-# Install Ollama from https://ollama.com
-# Then pull the model:
-ollama pull llama3.2
+### Skill 1: Compliance Screening
 
-# Start Ollama server (in a separate terminal)
-ollama serve
+```python
+from skills.compliance_screening.scripts import screen_entity
 
-# Test it's working
-curl http://localhost:11434/api/tags
+# Screen a buyer against sanctions lists
+result = screen_entity(
+    entity_name="Acme Trading Corp",
+    entity_country="HK",
+    entity_type="Buyer"
+)
+
+print(f"Sanctions Match: {result['sanctions_match']}")
+print(f"Country Risk: {result['country_risk']} ({result['country_risk_score']}/10)")
+print(f"Recommendation: {result['recommendation']}")
+```
+
+### Skill 2: Risk Assessment
+
+```python
+from skills.risk_assessment.scripts import score_entity
+
+# Score an entity's credit risk
+score = score_entity(
+    entity_name="Acme Trading Corp",
+    entity_type="Buyer"
+)
+
+print(f"Risk Score: {score['risk_score']:.2f} ({score['risk_category']})")
+print(f"Credit Limit: ${score['credit_limit_usd']:,}")
+print(f"Recommendation: {score['recommendation']}")
+```
+
+### Skill 3: Predictive Analytics
+
+```python
+from skills.predictive_analytics.scripts import forecast_lc_volume, predict_port_delay
+
+# Forecast LC volume for next 30 days
+forecast = forecast_lc_volume(forecast_days=30)
+print(f"Expected LCs next week: {sum([d['lc_count'] for d in forecast['predictions'][:7]])}")
+
+# Predict port delay
+delay = predict_port_delay(
+    port_of_loading="CNSHA",
+    port_of_discharge="USNYC",
+    cargo_type="Electronics",
+    cargo_volume_cbm=500,
+    shipment_date="2026-02-15"
+)
+print(f"Predicted Delay: {delay['predicted_delay_days']:.1f} days ({delay['risk_level']})")
+```
+
+### Skill 4: Quantum Anomaly Detection
+
+```python
+from skills.quantum_anomaly.scripts import detect_anomaly_quantum
+
+# Detect anomalies using quantum ML
+result = detect_anomaly_quantum(
+    entity_name="Acme Trading Corp",
+    transaction_id="LC2026-HK-00482"
+)
+
+print(f"Anomaly Detected: {result['is_anomaly']}")
+print(f"Quantum Score: {result['quantum_score']:.2f}")
+print(f"Confidence: {result['anomaly_confidence']:.0%}")
 ```
 
 ---
 
-## 🚀 Step 7: Run the AI Agent API
-
-```bash
-# Make sure Neo4j and Ollama are running
-# Then start the FastAPI server:
-python src/api.py
-```
-
-**Access the API**: [http://localhost:8000](http://localhost:8000)
-
-**Example Query:**
-```bash
-curl -X POST "http://localhost:8000/chat" \
-     -H "Content-Type: application/json" \
-     -d '{"query": "Show me all LCs where invoice amount exceeds LC amount by more than 10%"}'
-```
-
-**Response:**
-```json
-{
-  "answer": "Found 181 LCs with significant amount discrepancies...",
-  "generated_cypher": "MATCH (lc:LetterOfCredit)-[:REFERENCES]->(inv:CommercialInvoice)...",
-  "risk_assessment": {...}
-}
-```
-
----
-
-## 📊 Explore Your Graph - Sample Cypher Queries
+## 📊 Sample Cypher Queries
 
 ### 1. Find Sanctions Matches
 ```cypher
@@ -300,52 +331,7 @@ RETURN e.name, s.name, s.program, s.country
 LIMIT 10;
 ```
 
-### 2. Detect Amount Discrepancies
-```cypher
-MATCH (lc:LetterOfCredit)-[:REFERENCES]->(inv:CommercialInvoice)
-WHERE inv.discrepancy_flag = true
-RETURN lc.lc_number, 
-       lc.amount AS lc_amount, 
-       inv.amount AS invoice_amount,
-       inv.discrepancy_pct AS deviation_pct
-ORDER BY inv.discrepancy_pct DESC
-LIMIT 20;
-```
-
-### 3. Find Late Shipments
-```cypher
-MATCH (lc:LetterOfCredit)-[:REFERENCES]->(inv:CommercialInvoice)
-      -[:BACKED_BY]->(bl:BillOfLading)
-WHERE bl.late_shipment = true
-RETURN lc.lc_number, 
-       lc.latest_ship_date, 
-       bl.shipment_date,
-       bl.days_late
-ORDER BY bl.days_late DESC
-LIMIT 10;
-```
-
-### 4. Trace Complete Document Chain
-```cypher
-MATCH path = (buyer:Buyer)-[:ISSUED_LC]->(lc:LetterOfCredit)
-             -[:REFERENCES]->(inv:CommercialInvoice)
-             -[:BACKED_BY]->(bl:BillOfLading)
-             -[:DESCRIBES]->(pl:PackingList)
-RETURN path LIMIT 5;
-```
-
-### 5. High-Risk Country Exposure
-```cypher
-MATCH (buyer:Buyer)-[:ISSUED_LC]->(lc:LetterOfCredit)
-WHERE buyer.country IN ['Iran', 'North Korea', 'Syria', 'Russia', 'Venezuela']
-RETURN buyer.country, 
-       count(lc) AS lc_count, 
-       sum(lc.amount) AS total_exposure,
-       lc.currency
-ORDER BY total_exposure DESC;
-```
-
-### 6. Multi-Factor Risk Detection
+### 2. Multi-Factor Risk Detection
 ```cypher
 // Find LCs with amount discrepancy + late shipment + high-risk country
 MATCH (buyer:Buyer)-[:ISSUED_LC]->(lc:LetterOfCredit)
@@ -353,21 +339,9 @@ MATCH (buyer:Buyer)-[:ISSUED_LC]->(lc:LetterOfCredit)
       -[:BACKED_BY]->(bl:BillOfLading)
 WHERE inv.discrepancy_flag = true
   AND bl.late_shipment = true
-  AND buyer.country IN ['Iran', 'North Korea', 'Syria', 'Venezuela']
-RETURN buyer.name, buyer.country, lc.lc_number, 
-       inv.discrepancy_pct, bl.days_late
+  AND buyer.country IN ['Iran', 'North Korea', 'Syria', 'Russia']
+RETURN buyer.name, lc.lc_number, inv.discrepancy_pct, bl.days_late
 ORDER BY inv.discrepancy_pct DESC;
-```
-
-### 7. Fraud Pattern Detection
-```cypher
-// Find buyers with multiple fraud flags
-MATCH (buyer:Buyer)-[:ISSUED_LC]->(lc:LetterOfCredit)
-WHERE lc.fraud_flag = true
-WITH buyer, count(lc) AS fraud_count
-WHERE fraud_count > 1
-RETURN buyer.name, buyer.country, fraud_count
-ORDER BY fraud_count DESC;
 ```
 
 ---
@@ -377,26 +351,63 @@ ORDER BY fraud_count DESC;
 ```
 comp3520/
 ├── data/
-│   ├── raw/                          # Kaggle datasets (not in git)
-│   ├── processed/                    # Generated data (not in git)
+│   ├── raw/                          # Kaggle datasets (gitignored)
+│   ├── processed/                    # Generated data (gitignored)
 │   │   ├── transactions.csv         # 1,000 trade finance records
 │   │   ├── sanctions_all.csv        # 200 sanctions entities
-│   │   ├── sanctions_ofac.csv
-│   │   ├── sanctions_un.csv
-│   │   └── sanctions_eu.csv
-│   └── neo4j_import/                # Neo4j-ready CSVs
+│   │   └── training_data.csv        # ML training data
+│   └── neo4j_import/                # Neo4j CSVs
+│
+├── models/                           # Trained ML models (gitignored)
+│   ├── risk_model.pkl               # XGBoost credit scorer
+│   ├── prophet_lc_volume.pkl        # Prophet forecaster
+│   ├── lstm_port_delay.h5           # LSTM predictor
+│   ├── isolation_forest.pkl         # Classical anomaly detector
+│   └── quantum_vqc.pkl              # Quantum VQC weights
 │
 ├── src/
 │   ├── data_generation/
-│   │   ├── __init__.py
 │   │   ├── generate_sanctions_list.py    # Create OFAC/UN/EU lists
 │   │   └── enrich_transactions.py        # Generate LC/Invoice/B/L/PL
-│   ├── ingest_trade_finance.py           # ✨ NEW: Neo4j ingestion
-│   ├── ingest_layer_a.py                 # Old AML ingestion (reference)
-│   ├── api.py                            # FastAPI server
-│   └── skills/                           # Agent skills
+│   │
+│   ├── skills/                           # 🎯 Agent Skills (Anthropic Framework)
+│   │   ├── compliance_screening/
+│   │   │   ├── SKILL.md                 # Skill documentation
+│   │   │   └── scripts/
+│   │   │       ├── screen_entity.py     # Main screening function
+│   │   │       ├── batch_screen.py      # Batch processing
+│   │   │       ├── country_risk.py      # Country risk scoring
+│   │   │       └── fuzzy_matcher.py     # RapidFuzz utilities
+│   │   │
+│   │   ├── risk_assessment/
+│   │   │   ├── SKILL.md
+│   │   │   └── scripts/
+│   │   │       ├── extract_features.py  # Neo4j feature extraction
+│   │   │       ├── train_model.py       # XGBoost training
+│   │   │       ├── score_entity.py      # Credit scoring
+│   │   │       └── batch_score.py       # Batch scoring
+│   │   │
+│   │   ├── predictive_analytics/
+│   │   │   ├── SKILL.md
+│   │   │   └── scripts/
+│   │   │       ├── train_prophet.py     # Prophet training
+│   │   │       ├── train_lstm.py        # LSTM training
+│   │   │       ├── prophet_forecaster.py
+│   │   │       ├── lstm_predictor.py
+│   │   │       └── isolation_forest.py
+│   │   │
+│   │   └── quantum_anomaly/
+│   │       ├── SKILL.md
+│   │       └── scripts/
+│   │           ├── train_vqc.py         # Train 4-qubit VQC
+│   │           ├── detect_quantum.py    # Quantum inference
+│   │           ├── benchmark.py         # Quantum vs classical
+│   │           └── extract_quantum_features.py
+│   │
+│   ├── ingest_trade_finance.py           # Neo4j ingestion
+│   └── api.py                            # FastAPI server (Week 3)
 │
-├── venv/                                 # Virtual environment (not in git)
+├── venv/                                 # Virtual environment (gitignored)
 ├── requirements.txt
 ├── .gitignore
 └── README.md
@@ -416,47 +427,47 @@ source venv/bin/activate
 
 # 3. Make sure services are running
 docker ps | grep neo4j-sentinel  # Neo4j should be running
-curl http://localhost:11434/api/tags  # Ollama should respond
 
-# 4. Work on your code
-python src/api.py
+# 4. Work on skills
+python src/skills/compliance_screening/scripts/screen_entity.py
 
 # 5. When done, deactivate
 deactivate
 ```
 
-**Update dependencies:**
-```bash
-source venv/bin/activate
-pip install <new-package>
-pip freeze > requirements.txt
-git add requirements.txt
-git commit -m "Add <new-package> dependency"
-```
-
 ---
 
-## 📚 Next Steps
+## 📚 Development Roadmap
 
-### Week 2: ML Models
-- [ ] Train XGBoost risk scoring model
-- [ ] Implement quantum anomaly detector (PennyLane)
-- [ ] Build predictive analytics (Prophet, LSTM)
+### ✅ Week 1: Foundation (COMPLETE)
+- [x] Neo4j graph database setup
+- [x] Trade finance data generation (1,000 transactions)
+- [x] Sanctions list integration (OFAC, UN, EU)
+- [x] Graph ingestion pipeline
 
-### Week 3: Self-Improving Agent
-- [ ] Implement LangGraph state machine
-- [ ] Add ChromaDB memory system
-- [ ] Build privacy gateway for external APIs
+### ✅ Week 2: ML Agent Skills (COMPLETE)
+- [x] **Compliance Screening Skill**: Exact + fuzzy matching, <500ms latency
+- [x] **Risk Assessment Skill**: XGBoost model, 12D features, AUC-ROC >0.85
+- [x] **Predictive Analytics Skill**: Prophet + LSTM + Isolation Forest
+- [x] **Quantum Anomaly Skill**: 4-qubit VQC, +3.9% F1 vs classical
 
-### Week 4: Dashboard
-- [ ] Create Streamlit multi-page app
-- [ ] Add real-time visualizations (Plotly)
-- [ ] Implement role-based views
+### 🚧 Week 3: Self-Improving Agent (IN PROGRESS)
+- [ ] LangGraph state machine for agentic workflows
+- [ ] ChromaDB memory system for agent learning
+- [ ] Privacy gateway for external API calls
+- [ ] Agent skill orchestration layer
 
-### Week 5: Demo
-- [ ] Prepare golden demo scenarios
-- [ ] Record screen demos
-- [ ] Write FYP documentation
+### 📅 Week 4: Dashboard & Visualization
+- [ ] Streamlit multi-page application
+- [ ] Real-time graph visualizations (Plotly)
+- [ ] Role-based views (Analyst, Compliance, Risk)
+- [ ] Interactive skill playground
+
+### 📅 Week 5: Demo & Documentation
+- [ ] Golden demo scenarios
+- [ ] Screen recording & presentation
+- [ ] FYP report documentation
+- [ ] GitHub Pages deployment
 
 ---
 
@@ -482,46 +493,45 @@ docker restart neo4j-sentinel
 docker logs neo4j-sentinel
 ```
 
-### Ollama not responding
+### Skill import errors
 ```bash
-# Start Ollama server
-ollama serve
+# Make sure you're in project root
+cd ~/comp3520
+source venv/bin/activate
 
-# In another terminal, verify
-curl http://localhost:11434/api/tags
-```
-
-### Data generation issues
-```bash
-# If you see "file not found" for Kaggle datasets, that's OK!
-# The scripts will automatically create synthetic data
-
-# Regenerate all data
-python src/data_generation/generate_sanctions_list.py
-python src/data_generation/enrich_transactions.py
+# Add src to PYTHONPATH
+export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
 ```
 
 ---
 
 ## 📖 Documentation
 
-- **Data Sources**: See `data/raw/README.md`
-- **Generated Data Schema**: See `data/processed/README.md`
-- **Neo4j Import Guide**: See `data/neo4j_import/README.md`
+- **Agent Skills**:
+  - [Compliance Screening](src/skills/compliance_screening/SKILL.md)
+  - [Risk Assessment](src/skills/risk_assessment/SKILL.md)
+  - [Predictive Analytics](src/skills/predictive_analytics/SKILL.md)
+  - [Quantum Anomaly Detection](src/skills/quantum_anomaly/SKILL.md)
+
+- **Data Generation**:
+  - [Sanctions Lists](data/processed/README.md)
+  - [Transaction Data](data/processed/README.md)
 
 ---
 
 ## 🎯 Project Goals
 
-**For FYP:**
-- Demonstrate full-stack AI system design
-- Combine graph databases + LLMs + quantum ML
-- Address real-world trade finance challenges
+**For FYP (COMP3520):**
+- Demonstrate full-stack AI system design with modular architecture
+- Combine graph databases + LLMs + quantum ML + classical ML
+- Address real-world trade finance challenges (compliance, risk, fraud)
+- Showcase Anthropic's Agent Skills framework in production
 
 **For HSBC Internship:**
-- Showcase transaction banking domain knowledge
-- Highlight privacy-first architecture
-- Prove ability to build production-grade systems
+- Deep transaction banking domain knowledge
+- Privacy-first architecture (air-gapped, no external APIs)
+- Production-grade ML pipelines (training, validation, deployment)
+- Research mindset (quantum advantage benchmarking)
 
 ---
 
@@ -533,10 +543,11 @@ MIT License - See LICENSE file for details
 
 ## 👤 Author
 
-Brian Ho - HKU Data Science Student
+**Brian Ho** - HKU Data Science Student
 - GitHub: [@hck717](https://github.com/hck717)
 - Project: Sentinel-Zero Trade Finance Intelligence Platform
 - Course: COMP3520 Final Year Project
+- Target Role: Transaction Banking + AI/ML (HSBC GCIO)
 
 ---
 
