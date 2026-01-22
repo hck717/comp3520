@@ -20,7 +20,7 @@ Sentinel-Zero is a self-improving, privacy-first trade finance intelligence plat
 - **Python 3.10+** (macOS/Linux/Windows)
 - **Docker Desktop** (for Neo4j database)
 - **Ollama** (for local LLM) - [Download here](https://ollama.com)
-- **Kaggle Account** (for downloading datasets)
+- **Kaggle Account** (for downloading datasets - optional)
 
 ---
 
@@ -66,7 +66,9 @@ source venv/bin/activate  # Don't forget this!
 
 ---
 
-## 📊 Step 2: Download Trade Finance Datasets
+## 📊 Step 2: Download Trade Finance Datasets (Optional)
+
+**Note**: The data generation scripts can create synthetic data if you don't have Kaggle datasets.
 
 ### Option A: Download from Kaggle Web UI
 
@@ -110,6 +112,7 @@ python src/data_generation/generate_sanctions_list.py
 # Output: 200 sanctions entities in data/processed/
 
 # Step 2: Enrich Kaggle data with LC/Invoice/B/L/Packing List structure
+# If you don't have Kaggle datasets, this will create synthetic data automatically
 python src/data_generation/enrich_transactions.py
 # Output: 1,000 complete trade finance records in data/processed/transactions.csv
 ```
@@ -117,14 +120,14 @@ python src/data_generation/enrich_transactions.py
 **Expected Output:**
 ```
 ✅ Generated 200 sanctions entities
-   - OFAC SDN: 67 entities
+   - OFAC SDN: 66 entities
    - UN SC: 68 entities
-   - EU FSF: 65 entities
+   - EU FSF: 66 entities
 
 ✅ Generated 1,000 complete trade finance records
-   - Amount discrepancies: 103 (10.3%)
-   - Late shipments: 147 (14.7%)
-   - Fraud flags: 52 (5.2%)
+   - Amount discrepancies: 181 (18.1%)
+   - Late shipments: 703 (70.3%)
+   - Fraud flags: 47 (4.7%)
 ```
 
 ---
@@ -155,26 +158,90 @@ docker start neo4j-sentinel
 ## 📥 Step 5: Ingest Data into Neo4j
 
 ```bash
-# Run the ingestion script
-python src/ingest_realtime.py
+# Run the trade finance ingestion script
+python src/ingest_trade_finance.py
 ```
 
-**What this does:**
-- Creates graph schema (Buyer, Seller, Bank, LC, Invoice, B/L, Packing List nodes)
-- Ingests 1,000 trade finance transactions
-- Links documents to entities
-- Loads sanctions lists for compliance screening
+**Expected Output:**
+```
+============================================================
+  SENTINEL-ZERO TRADE FINANCE INGESTION
+============================================================
 
-**Verify in Neo4j Browser:**
+✅ Connected to Neo4j at bolt://localhost:7687
+
+⚠️  Clear existing Neo4j data? (y/N): n
+
+📂 Loaded 1000 transactions from data/processed/transactions.csv
+
+🔧 Creating constraints and indexes...
+✅ Constraints and indexes created
+
+📊 Ingesting entities (Buyers, Sellers, Banks)...
+  ✅ 200 buyers
+  ✅ 150 sellers
+  ✅ 30 banks
+
+📄 Ingesting Letters of Credit...
+  ✅ 1000 LCs ingested
+
+🧾 Ingesting Commercial Invoices...
+  ✅ 1000 invoices ingested (181 with discrepancies)
+
+🚢 Ingesting Bills of Lading...
+  ✅ 1000 B/Ls ingested (703 late shipments)
+
+📦 Ingesting Packing Lists...
+  ✅ 1000 packing lists ingested
+
+🚫 Ingesting sanctions lists...
+  ✅ 200 sanctions entities loaded
+  🔍 Screening entities against sanctions...
+  ✅ Found 52 sanctions matches
+
+⚠️  Creating risk flags...
+  ✅ Flagged 47 potentially fraudulent transactions
+
+============================================================
+  INGESTION SUMMARY
+============================================================
+Entities (Total)............................ 380
+  - Buyers................................... 200
+  - Sellers.................................. 150
+  - Banks.................................... 30
+Letters of Credit........................... 1000
+Commercial Invoices......................... 1000
+  - With Discrepancies....................... 181
+Bills of Lading............................. 1000
+  - Late Shipments........................... 703
+Packing Lists............................... 1000
+Sanctions Entities.......................... 200
+Sanctions Matches........................... 52
+Fraud Flags................................. 47
+============================================================
+
+🎉 INGESTION COMPLETE!
+```
+
+**Verify in Neo4j Browser**:
+
+Open [http://localhost:7474](http://localhost:7474) and run:
+
 ```cypher
 // Count all nodes
-MATCH (n) RETURN count(n);
+MATCH (n) RETURN count(n) AS total_nodes;
 
-// Visualize a trade finance chain
-MATCH path = (buyer:Entity)-[:ISSUED_LC]->(lc:LetterOfCredit)
+// Visualize a complete trade finance chain
+MATCH path = (buyer:Buyer)-[:ISSUED_LC]->(lc:LetterOfCredit)
              -[:REFERENCES]->(inv:CommercialInvoice)
              -[:BACKED_BY]->(bl:BillOfLading)
+             -[:DESCRIBES]->(pl:PackingList)
 RETURN path LIMIT 5;
+
+// Find a sanctioned entity
+MATCH (buyer:Buyer)-[r:SCREENED_AGAINST]->(s:SanctionEntity)
+RETURN buyer.name, s.name, s.list_type, s.program
+LIMIT 5;
 ```
 
 ---
@@ -215,7 +282,7 @@ curl -X POST "http://localhost:8000/chat" \
 **Response:**
 ```json
 {
-  "answer": "Found 12 LCs with significant amount discrepancies...",
+  "answer": "Found 181 LCs with significant amount discrepancies...",
   "generated_cypher": "MATCH (lc:LetterOfCredit)-[:REFERENCES]->(inv:CommercialInvoice)...",
   "risk_assessment": {...}
 }
@@ -223,49 +290,84 @@ curl -X POST "http://localhost:8000/chat" \
 
 ---
 
-## 📊 Explore Your Graph
+## 📊 Explore Your Graph - Sample Cypher Queries
 
-### Sample Cypher Queries
-
-**1. Find Sanctions Matches**
+### 1. Find Sanctions Matches
 ```cypher
-MATCH (e:Entity)-[:SCREENED_AGAINST]->(s:SanctionEntity)
+MATCH (e:Entity)-[r:SCREENED_AGAINST]->(s:SanctionEntity)
 WHERE s.list_type = 'OFAC_SDN'
-RETURN e.name, s.name, s.program
+RETURN e.name, s.name, s.program, s.country
 LIMIT 10;
 ```
 
-**2. Detect Amount Discrepancies**
+### 2. Detect Amount Discrepancies
 ```cypher
 MATCH (lc:LetterOfCredit)-[:REFERENCES]->(inv:CommercialInvoice)
-WHERE abs(inv.amount - lc.amount) > lc.amount * 0.1
-RETURN lc.lc_number, lc.amount, inv.amount,
-       (inv.amount - lc.amount) / lc.amount * 100 AS deviation_pct
-ORDER BY deviation_pct DESC;
+WHERE inv.discrepancy_flag = true
+RETURN lc.lc_number, 
+       lc.amount AS lc_amount, 
+       inv.amount AS invoice_amount,
+       inv.discrepancy_pct AS deviation_pct
+ORDER BY inv.discrepancy_pct DESC
+LIMIT 20;
 ```
 
-**3. Find Late Shipments**
+### 3. Find Late Shipments
 ```cypher
-MATCH (lc:LetterOfCredit)-[:COVERS]->(ship:Shipment)
-WHERE ship.actual_ship_date > lc.latest_ship_date
-RETURN lc.lc_number, lc.latest_ship_date, ship.actual_ship_date,
-       duration.between(lc.latest_ship_date, ship.actual_ship_date).days AS days_late
-ORDER BY days_late DESC;
+MATCH (lc:LetterOfCredit)-[:REFERENCES]->(inv:CommercialInvoice)
+      -[:BACKED_BY]->(bl:BillOfLading)
+WHERE bl.late_shipment = true
+RETURN lc.lc_number, 
+       lc.latest_ship_date, 
+       bl.shipment_date,
+       bl.days_late
+ORDER BY bl.days_late DESC
+LIMIT 10;
 ```
 
-**4. Trace Document Chain**
+### 4. Trace Complete Document Chain
 ```cypher
-MATCH path = (lc:LetterOfCredit)-[:REFERENCES]->(inv:CommercialInvoice)
-             -[:BACKED_BY]->(bl:BillOfLading)-[:DESCRIBES]->(pl:PackingList)
+MATCH path = (buyer:Buyer)-[:ISSUED_LC]->(lc:LetterOfCredit)
+             -[:REFERENCES]->(inv:CommercialInvoice)
+             -[:BACKED_BY]->(bl:BillOfLading)
+             -[:DESCRIBES]->(pl:PackingList)
 RETURN path LIMIT 5;
 ```
 
-**5. High-Risk Country Exposure**
+### 5. High-Risk Country Exposure
 ```cypher
-MATCH (e:Entity)-[:ISSUED_LC|BENEFICIARY]->(lc:LetterOfCredit)
-WHERE e.country IN ['Iran', 'North Korea', 'Syria', 'Venezuela']
-RETURN e.country, count(lc) AS lc_count, sum(lc.amount) AS total_exposure
+MATCH (buyer:Buyer)-[:ISSUED_LC]->(lc:LetterOfCredit)
+WHERE buyer.country IN ['Iran', 'North Korea', 'Syria', 'Russia', 'Venezuela']
+RETURN buyer.country, 
+       count(lc) AS lc_count, 
+       sum(lc.amount) AS total_exposure,
+       lc.currency
 ORDER BY total_exposure DESC;
+```
+
+### 6. Multi-Factor Risk Detection
+```cypher
+// Find LCs with amount discrepancy + late shipment + high-risk country
+MATCH (buyer:Buyer)-[:ISSUED_LC]->(lc:LetterOfCredit)
+      -[:REFERENCES]->(inv:CommercialInvoice)
+      -[:BACKED_BY]->(bl:BillOfLading)
+WHERE inv.discrepancy_flag = true
+  AND bl.late_shipment = true
+  AND buyer.country IN ['Iran', 'North Korea', 'Syria', 'Venezuela']
+RETURN buyer.name, buyer.country, lc.lc_number, 
+       inv.discrepancy_pct, bl.days_late
+ORDER BY inv.discrepancy_pct DESC;
+```
+
+### 7. Fraud Pattern Detection
+```cypher
+// Find buyers with multiple fraud flags
+MATCH (buyer:Buyer)-[:ISSUED_LC]->(lc:LetterOfCredit)
+WHERE lc.fraud_flag = true
+WITH buyer, count(lc) AS fraud_count
+WHERE fraud_count > 1
+RETURN buyer.name, buyer.country, fraud_count
+ORDER BY fraud_count DESC;
 ```
 
 ---
@@ -275,19 +377,26 @@ ORDER BY total_exposure DESC;
 ```
 comp3520/
 ├── data/
-│   ├── raw/                    # Kaggle datasets (not in git)
-│   ├── processed/              # Generated data (not in git)
-│   └── neo4j_import/          # Neo4j-ready CSVs
+│   ├── raw/                          # Kaggle datasets (not in git)
+│   ├── processed/                    # Generated data (not in git)
+│   │   ├── transactions.csv         # 1,000 trade finance records
+│   │   ├── sanctions_all.csv        # 200 sanctions entities
+│   │   ├── sanctions_ofac.csv
+│   │   ├── sanctions_un.csv
+│   │   └── sanctions_eu.csv
+│   └── neo4j_import/                # Neo4j-ready CSVs
 │
 ├── src/
 │   ├── data_generation/
-│   │   ├── generate_sanctions_list.py
-│   │   └── enrich_transactions.py
-│   ├── ingest_realtime.py     # Neo4j ingestion
-│   ├── api.py                 # FastAPI server
-│   └── skills/                # Agent skills
+│   │   ├── __init__.py
+│   │   ├── generate_sanctions_list.py    # Create OFAC/UN/EU lists
+│   │   └── enrich_transactions.py        # Generate LC/Invoice/B/L/PL
+│   ├── ingest_trade_finance.py           # ✨ NEW: Neo4j ingestion
+│   ├── ingest_layer_a.py                 # Old AML ingestion (reference)
+│   ├── api.py                            # FastAPI server
+│   └── skills/                           # Agent skills
 │
-├── venv/                      # Virtual environment (not in git)
+├── venv/                                 # Virtual environment (not in git)
 ├── requirements.txt
 ├── .gitignore
 └── README.md
@@ -380,6 +489,16 @@ ollama serve
 
 # In another terminal, verify
 curl http://localhost:11434/api/tags
+```
+
+### Data generation issues
+```bash
+# If you see "file not found" for Kaggle datasets, that's OK!
+# The scripts will automatically create synthetic data
+
+# Regenerate all data
+python src/data_generation/generate_sanctions_list.py
+python src/data_generation/enrich_transactions.py
 ```
 
 ---
