@@ -1,1 +1,58 @@
+# Large data files - do not commit raw datasets
+data/raw/*.csv
+data/raw/*.zip
+data/processed/*.csv
+data/neo4j_import/*.csv
+
+# Keep only README files in data folders
+!data/raw/README.md
+!data/processed/README.md
+!data/neo4j_import/README.md
+
+# Old dataset from previous version
 data/LI-Small_Trans.csv
+
+# Mac files
+.DS_Store
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+
+# ChromaDB vector store
+chroma_trade_memory/
+*.chroma
+
+# Neo4j data (if running locally without Docker)
+neo4j_data/
+*.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Logs
+*.log
+logs/
