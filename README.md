@@ -65,6 +65,8 @@ pip install -r requirements.txt
 ```
 
 ### 2. Neo4j Setup (Optional but Recommended)
+
+#### 2a. Start Neo4j Container
 ```bash
 # Run Neo4j for Graph RAG agent
 docker run -d --name neo4j-sentinel \
@@ -72,10 +74,81 @@ docker run -d --name neo4j-sentinel \
   -e NEO4J_AUTH=neo4j/password123 \
   neo4j:5.26.0
 
-# Access Neo4j Browser: http://localhost:7474
+# Wait ~30 seconds for Neo4j to start
+# Check logs: docker logs neo4j-sentinel
 ```
 
-**📚 See [docs/NEO4J_SETUP.md](docs/NEO4J_SETUP.md) for sample data and Cypher queries**
+#### 2b. Load Sample Data
+```bash
+# Open Neo4j Browser
+open http://localhost:7474
+
+# Login: neo4j / password123
+```
+
+**Paste these queries in Neo4j Browser to create sample data:**
+
+```cypher
+// Create Buyers
+CREATE (b1:Buyer {name: 'Global Electronics Inc', country: 'US', credit_rating: 'AAA'})
+CREATE (b2:Buyer {name: 'Euro Trading GmbH', country: 'DE', credit_rating: 'AA'})
+CREATE (b3:Buyer {name: 'Asia Imports Ltd', country: 'CN', credit_rating: 'A'})
+CREATE (b4:Buyer {name: 'Suspicious Buyer Corp', country: 'IR', credit_rating: 'C'})
+RETURN b1, b2, b3, b4;
+```
+
+```cypher
+// Create Sellers
+CREATE (s1:Seller {name: 'Tech Manufacturing Co', country: 'TW', industry: 'Electronics'})
+CREATE (s2:Seller {name: 'Global Exports LLC', country: 'US', industry: 'General Trade'})
+CREATE (s3:Seller {name: 'Shady Shell Company', country: 'RU', industry: 'Unknown'})
+CREATE (s4:Seller {name: 'Premium Goods Ltd', country: 'HK', industry: 'Luxury'})
+RETURN s1, s2, s3, s4;
+```
+
+```cypher
+// Create Normal Transactions
+MATCH (b:Buyer {name: 'Global Electronics Inc'}), (s:Seller {name: 'Tech Manufacturing Co'})
+CREATE (b)-[:TRANSACTED {
+  amount: 250000,
+  date: date('2025-11-15'),
+  lc_number: 'LC-2025-1001',
+  status: 'completed',
+  risk_score: 0.1
+}]->(s);
+
+MATCH (b:Buyer {name: 'Euro Trading GmbH'}), (s:Seller {name: 'Premium Goods Ltd'})
+CREATE (b)-[:TRANSACTED {
+  amount: 180000,
+  date: date('2025-12-01'),
+  lc_number: 'LC-2025-1002',
+  status: 'completed',
+  risk_score: 0.15
+}]->(s);
+```
+
+```cypher
+// Create Suspicious Transaction (High-Risk)
+MATCH (b:Buyer {name: 'Suspicious Buyer Corp'}), (s:Seller {name: 'Shady Shell Company'})
+CREATE (b)-[:TRANSACTED {
+  amount: 950000,
+  date: date('2026-01-05'),
+  lc_number: 'LC-2026-1004',
+  status: 'flagged',
+  risk_score: 0.95,
+  alert: 'High-risk parties'
+}]->(s);
+```
+
+**Test your data with a query:**
+```cypher
+// View all transactions
+MATCH (b:Buyer)-[t:TRANSACTED]->(s:Seller)
+RETURN b.name AS buyer, s.name AS seller, t.amount AS amount, t.risk_score AS risk
+ORDER BY t.risk_score DESC;
+```
+
+**📚 Full Neo4j guide with 8+ queries:** [docs/NEO4J_SETUP.md](docs/NEO4J_SETUP.md)
 
 ### 3. Test All 4 Agent Skills
 ```bash
