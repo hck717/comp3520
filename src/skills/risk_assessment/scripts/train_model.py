@@ -1,140 +1,179 @@
-"""Train XGBoost classifier for entity risk assessment."""
+"""Train XGBoost model for credit risk assessment."""
 
 import logging
+import numpy as np
 import pandas as pd
 import joblib
 from pathlib import Path
-from typing import Dict
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, roc_auc_score, confusion_matrix
+from sklearn.metrics import (
+    classification_report, confusion_matrix, roc_auc_score, 
+    precision_recall_curve, auc
+)
 import xgboost as xgb
-from imblearn.over_sampling import SMOTE
 
 logger = logging.getLogger(__name__)
 
-FEATURE_COLUMNS = [
-    'transaction_count',
-    'total_exposure',
-    'avg_lc_amount',
-    'discrepancy_rate',
-    'late_shipment_rate',
-    'payment_delay_avg',
-    'counterparty_diversity',
-    'high_risk_country_exposure',
-    'sanctions_exposure',
-    'doc_completeness',
-    'amendment_rate',
-    'fraud_flags',
-]
 
 def train_xgboost_model(
     training_data_path: str = "data/processed/training_data.csv",
     model_output_path: str = "models/risk_model.pkl",
     test_size: float = 0.2,
-    n_estimators: int = 100,
-    use_smote: bool = True
-) -> Dict:
+    random_state: int = 42
+) -> dict:
     """
-    Train XGBoost classifier for risk assessment.
+    Train XGBoost classifier for credit risk prediction.
     
     Args:
-        training_data_path: Path to training CSV
+        training_data_path: Path to CSV with features and labels
         model_output_path: Path to save trained model
-        test_size: Fraction for test set
-        n_estimators: Number of boosting rounds
-        use_smote: Whether to use SMOTE for class imbalance
+        test_size: Fraction of data for validation
+        random_state: Random seed for reproducibility
         
     Returns:
-        Dictionary with evaluation metrics
+        Dictionary with performance metrics
     """
+    logger.info("="*60)
+    logger.info("  XGBOOST RISK MODEL TRAINING")
+    logger.info("="*60)
+    
     # Load training data
-    logger.info(f"Loading training data from {training_data_path}")
+    logger.info(f"\n📂 Loading training data from {training_data_path}...")
     df = pd.read_csv(training_data_path)
+    logger.info(f"  ✅ Loaded {len(df)} samples")
+    logger.info(f"     Clean (0): {(df['label'] == 0).sum()}")
+    logger.info(f"     High-risk (1): {(df['label'] == 1).sum()}")
     
     # Prepare features and labels
-    X = df[FEATURE_COLUMNS]
-    y = df['label']
+    feature_cols = [col for col in df.columns if col not in ['label', 'entity_name']]
+    X = df[feature_cols].values
+    y = df['label'].values
     
-    logger.info(f"Training samples: {len(df)}")
-    logger.info(f"High-risk ratio: {y.mean()*100:.1f}%")
+    logger.info(f"\n📊 Feature set: {len(feature_cols)} features")
+    for i, col in enumerate(feature_cols):
+        logger.info(f"     {i+1:2d}. {col}")
     
-    # Split into train/test
+    # Train-test split
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=42, stratify=y
+        X, y, test_size=test_size, random_state=random_state, stratify=y
     )
     
-    # Handle class imbalance with SMOTE
-    if use_smote and y_train.mean() < 0.4:  # Only if imbalanced
-        logger.info("Applying SMOTE to balance classes")
-        smote = SMOTE(random_state=42)
-        X_train, y_train = smote.fit_resample(X_train, y_train)
-        logger.info(f"After SMOTE: {len(y_train)} samples, {y_train.mean()*100:.1f}% high-risk")
+    logger.info(f"\n📈 Dataset split:")
+    logger.info(f"     Training: {len(X_train)} samples")
+    logger.info(f"     Testing: {len(X_test)} samples")
     
-    # Train XGBoost
-    logger.info("Training XGBoost classifier...")
+    # Calculate scale_pos_weight for class imbalance
+    n_negative = (y_train == 0).sum()
+    n_positive = (y_train == 1).sum()
+    scale_pos_weight = n_negative / n_positive if n_positive > 0 else 1
+    
+    logger.info(f"\n⚖️  Class balance:")
+    logger.info(f"     Negative class: {n_negative}")
+    logger.info(f"     Positive class: {n_positive}")
+    logger.info(f"     Scale weight: {scale_pos_weight:.2f}")
+    
+    # Train XGBoost model
+    logger.info(f"\n🤖 Training XGBoost model...")
+    
     model = xgb.XGBClassifier(
-        n_estimators=n_estimators,
-        max_depth=5,
+        max_depth=6,
         learning_rate=0.1,
+        n_estimators=100,
         objective='binary:logistic',
-        random_state=42,
-        use_label_encoder=False,
-        eval_metric='logloss'
+        eval_metric='auc',
+        scale_pos_weight=scale_pos_weight,
+        random_state=random_state,
+        use_label_encoder=False
     )
     
-    model.fit(X_train, y_train)
+    # Fit with early stopping
+    eval_set = [(X_test, y_test)]
+    model.fit(
+        X_train, y_train,
+        eval_set=eval_set,
+        verbose=False
+    )
     
-    # Evaluate on test set
+    # Predictions
     y_pred = model.predict(X_test)
     y_pred_proba = model.predict_proba(X_test)[:, 1]
     
     # Metrics
     auc_roc = roc_auc_score(y_test, y_pred_proba)
-    report = classification_report(y_test, y_pred, output_dict=True)
+    report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
     cm = confusion_matrix(y_test, y_pred)
     
-    logger.info(f"\nModel Performance:")
-    logger.info(f"  AUC-ROC: {auc_roc:.3f}")
-    logger.info(f"  Precision: {report['1']['precision']:.3f}")
-    logger.info(f"  Recall: {report['1']['recall']:.3f}")
-    logger.info(f"  F1-Score: {report['1']['f1-score']:.3f}")
-    logger.info(f"\nConfusion Matrix:")
-    logger.info(f"  TN: {cm[0][0]}, FP: {cm[0][1]}")
-    logger.info(f"  FN: {cm[1][0]}, TP: {cm[1][1]}")
+    # Precision-Recall AUC
+    precision, recall, _ = precision_recall_curve(y_test, y_pred_proba)
+    pr_auc = auc(recall, precision)
+    
+    logger.info("\n" + "="*60)
+    logger.info("📊 VALIDATION RESULTS")
+    logger.info("="*60)
+    logger.info(f"\n  AUC-ROC:   {auc_roc:.3f}")
+    logger.info(f"  PR-AUC:    {pr_auc:.3f}")
+    
+    if '1' in report:
+        logger.info(f"  Precision: {report['1']['precision']:.3f}")
+        logger.info(f"  Recall:    {report['1']['recall']:.3f}")
+        logger.info(f"  F1-Score:  {report['1']['f1-score']:.3f}")
+    else:
+        logger.warning("  ⚠️  High-risk class not predicted!")
+        logger.info(f"  Precision: 0.000")
+        logger.info(f"  Recall:    0.000")
+        logger.info(f"  F1-Score:  0.000")
+    
+    logger.info(f"\n  Confusion Matrix:")
+    logger.info(f"     TN: {cm[0][0]:4d}  |  FP: {cm[0][1]:4d}")
+    logger.info(f"     FN: {cm[1][0]:4d}  |  TP: {cm[1][1]:4d}")
     
     # Feature importance
+    logger.info(f"\n  Top 5 Features by Importance:")
     feature_importance = pd.DataFrame({
-        'feature': FEATURE_COLUMNS,
+        'feature': feature_cols,
         'importance': model.feature_importances_
     }).sort_values('importance', ascending=False)
     
-    logger.info("\nTop 5 Most Important Features:")
-    for _, row in feature_importance.head(5).iterrows():
-        logger.info(f"  {row['feature']}: {row['importance']:.3f}")
+    for i, row in feature_importance.head(5).iterrows():
+        logger.info(f"     {row['feature']:30s}: {row['importance']:.3f}")
     
     # Save model
     Path(model_output_path).parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, model_output_path)
-    logger.info(f"\nModel saved to {model_output_path}")
+    joblib.dump({
+        'model': model,
+        'feature_cols': feature_cols,
+        'training_date': pd.Timestamp.now().isoformat(),
+        'metrics': {
+            'auc_roc': float(auc_roc),
+            'pr_auc': float(pr_auc),
+            'precision': float(report['1']['precision']) if '1' in report else 0.0,
+            'recall': float(report['1']['recall']) if '1' in report else 0.0,
+            'f1_score': float(report['1']['f1-score']) if '1' in report else 0.0
+        }
+    }, model_output_path)
+    
+    logger.info(f"\n💾 Model saved to: {model_output_path}")
+    logger.info("\n" + "="*60)
+    logger.info("🎉 TRAINING COMPLETE!")
+    logger.info("="*60)
     
     return {
-        'auc_roc': auc_roc,
-        'precision': report['1']['precision'],
-        'recall': report['1']['recall'],
-        'f1_score': report['1']['f1-score'],
-        'confusion_matrix': cm.tolist(),
-        'feature_importance': feature_importance.to_dict('records')
+        'auc_roc': float(auc_roc),
+        'pr_auc': float(pr_auc),
+        'precision': float(report['1']['precision']) if '1' in report else 0.0,
+        'recall': float(report['1']['recall']) if '1' in report else 0.0,
+        'f1_score': float(report['1']['f1-score']) if '1' in report else 0.0,
+        'train_samples': len(X_train),
+        'test_samples': len(X_test)
     }
 
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     
-    # Train model
     metrics = train_xgboost_model(
-        training_data_path='data/processed/training_data.csv',
-        model_output_path='models/risk_model.pkl',
-        n_estimators=100
+        training_data_path="data/processed/training_data.csv",
+        model_output_path="models/risk_model.pkl"
     )
     
-    print("\nTraining Complete!")
+    print(f"\n✅ Model AUC-ROC: {metrics['auc_roc']:.3f}")
