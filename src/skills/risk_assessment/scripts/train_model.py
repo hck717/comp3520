@@ -41,13 +41,20 @@ def train_xgboost_model(
     logger.info(f"\n📂 Loading training data from {training_data_path}...")
     df = pd.read_csv(training_data_path)
     logger.info(f"  ✅ Loaded {len(df)} samples")
-    logger.info(f"     Clean (0): {(df['label'] == 0).sum()}")
-    logger.info(f"     High-risk (1): {(df['label'] == 1).sum()}")
+    
+    # Handle both 'label' and 'is_anomaly' column names
+    label_col = 'label' if 'label' in df.columns else 'is_anomaly'
+    if label_col not in df.columns:
+        raise ValueError("CSV must contain either 'label' or 'is_anomaly' column")
+    
+    logger.info(f"     Clean (0): {(df[label_col] == 0).sum()}")
+    logger.info(f"     High-risk (1): {(df[label_col] == 1).sum()}")
     
     # Prepare features and labels
-    feature_cols = [col for col in df.columns if col not in ['label', 'entity_name']]
+    exclude_cols = [label_col, 'label', 'is_anomaly', 'entity_name', 'transaction_id']
+    feature_cols = [col for col in df.columns if col not in exclude_cols]
     X = df[feature_cols].values
-    y = df['label'].values
+    y = df[label_col].values
     
     logger.info(f"\n📊 Feature set: {len(feature_cols)} features")
     for i, col in enumerate(feature_cols):
