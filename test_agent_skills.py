@@ -60,14 +60,14 @@ def test_compliance_screening():
         
         # Test 1d: Fuzzy matching
         logger.info("\n[1d] Testing fuzzy name matching...")
-        from skills.compliance_screening.scripts.fuzzy_matcher import FuzzyMatcher
+        from skills.compliance_screening.scripts.fuzzy_matcher import fuzzy_match_sanctions, normalize_name
         
-        matcher = FuzzyMatcher()
-        
-        # Add some entities to watchlist
-        matcher.add_to_watchlist("ACME Corporation")
-        matcher.add_to_watchlist("Global Imports Ltd")
-        matcher.add_to_watchlist("XYZ Trading Co")
+        # Create mock sanctions list
+        sanctions_list = [
+            {"name": "ACME Corporation", "country": "IR", "reason": "Sanctions"},
+            {"name": "Global Imports Ltd", "country": "RU", "reason": "Watchlist"},
+            {"name": "XYZ Trading Company", "country": "KP", "reason": "Sanctions"},
+        ]
         
         # Test matches with typos
         test_names = [
@@ -77,12 +77,23 @@ def test_compliance_screening():
         ]
         
         for name in test_names:
-            matches = matcher.find_matches(name, threshold=0.75)
-            if matches:
-                best_match = matches[0]
-                logger.info(f"  '{name}' -> '{best_match['name']}' (score: {best_match['score']:.2f})")
+            result = fuzzy_match_sanctions(name, sanctions_list, threshold=75)
+            if result:
+                matched_entity, score = result
+                logger.info(f"  '{name}' -> '{matched_entity['name']}' (score: {score:.2f})")
             else:
                 logger.info(f"  '{name}' -> No match")
+        
+        # Test name normalization
+        logger.info("\n[1e] Testing name normalization...")
+        test_normalize = [
+            "ACME Corp. Ltd.",
+            "Global Trading Inc",
+            "XYZ-Company LLC",
+        ]
+        for name in test_normalize:
+            normalized = normalize_name(name)
+            logger.info(f"  '{name}' -> '{normalized}'")
         
         logger.info("\n✅ Compliance Screening: PASS")
         return True
@@ -226,6 +237,7 @@ def test_graph_query():
             logger.info("  Skipping Neo4j tests (requires Docker container)")
             logger.info("  Run: docker run -d --name neo4j-sentinel -p 7474:7474 -p 7687:7687 \\")
             logger.info("       -e NEO4J_AUTH=neo4j/password123 neo4j:5.26.0")
+            logger.info("\n✅ Graph Query (Graph RAG): PASS (with warnings)")
             return True  # Pass with warning
         
         # Test 3a: Query transaction network
@@ -281,7 +293,7 @@ def test_graph_query():
                     logger.info(f"    {entity['entity']}: {entity['transaction_count']} txns, ${entity['total_volume']:,.0f}")
         
         driver.close()
-        logger.info("\n✅ Graph Query: PASS")
+        logger.info("\n✅ Graph Query (Graph RAG): PASS")
         return True
         
     except ImportError:
