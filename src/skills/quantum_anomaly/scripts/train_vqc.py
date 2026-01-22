@@ -19,16 +19,15 @@ def quantum_circuit(features, weights):
     4-qubit VQC with amplitude encoding and parameterized rotation gates.
     
     Args:
-        features: 4D normalized feature vector
+        features: 4D normalized feature vector (will be padded to 16D)
         weights: Trainable parameters (3 layers x 4 qubits x 3 rotations)
         
     Returns:
         Expectation value of Pauli-Z on qubit 0
     """
-    # Amplitude encoding of features
-    # Normalize to unit vector for valid quantum state
-    normalized_features = features / pnp.linalg.norm(features)
-    qml.AmplitudeEmbedding(normalized_features, wires=range(4), normalize=True)
+    # AmplitudeEmbedding requires 2^n features for n qubits
+    # For 4 qubits, need 16 features. Pad with parameter.
+    qml.AmplitudeEmbedding(features, wires=range(4), normalize=True, pad_with=0.0)
     
     # Variational layers
     n_layers = 3
@@ -52,7 +51,7 @@ def cost_function(weights, features, labels):
     
     Args:
         weights: VQC parameters
-        features: Batch of normalized features
+        features: Batch of normalized features (each padded to 16D)
         labels: True labels (0 or 1)
         
     Returns:
@@ -71,29 +70,34 @@ def cost_function(weights, features, labels):
 def generate_synthetic_data(n_samples=200, seed=42):
     """
     Generate synthetic 4D data for quantum training.
+    Features are padded to 16D for AmplitudeEmbedding.
     
     Returns:
-        features (n_samples, 4), labels (n_samples,)
+        features (n_samples, 16), labels (n_samples,)
     """
     np.random.seed(seed)
     
-    # Normal transactions (label=0)
+    # Normal transactions (label=0) - generate 4D, will pad to 16D
     n_normal = int(n_samples * 0.7)
-    normal_features = np.random.rand(n_normal, 4) * 0.5 + 0.25  # Clustered
+    normal_features_4d = np.random.rand(n_normal, 4) * 0.5 + 0.25  # Clustered
     normal_labels = np.zeros(n_normal)
     
     # Anomalous transactions (label=1)
     n_anomaly = n_samples - n_normal
-    anomaly_features = np.random.rand(n_anomaly, 4)
-    anomaly_features[:, 0] *= 0.3  # Low amount norm
-    anomaly_features[:, 2] += 0.5  # High port risk
-    anomaly_features = np.clip(anomaly_features, 0, 1)
+    anomaly_features_4d = np.random.rand(n_anomaly, 4)
+    anomaly_features_4d[:, 0] *= 0.3  # Low amount norm
+    anomaly_features_4d[:, 2] += 0.5  # High port risk
+    anomaly_features_4d = np.clip(anomaly_features_4d, 0, 1)
     anomaly_labels = np.ones(n_anomaly)
     
-    # Combine and shuffle
-    features = np.vstack([normal_features, anomaly_features])
+    # Combine 4D features
+    features_4d = np.vstack([normal_features_4d, anomaly_features_4d])
     labels = np.hstack([normal_labels, anomaly_labels])
     
+    # Pad to 16D for AmplitudeEmbedding (2^4 = 16)
+    features = np.pad(features_4d, ((0, 0), (0, 12)), mode='constant', constant_values=0)
+    
+    # Shuffle
     indices = np.random.permutation(n_samples)
     return features[indices], labels[indices]
 
@@ -146,10 +150,19 @@ def train_quantum_model(
     
     report = classification_report(labels, pred_labels, output_dict=True, zero_division=0)
     
+    # Safe metric extraction
+    if '1' in report:
+        precision = report['1']['precision']
+        recall = report['1']['recall']
+        f1_score = report['1']['f1-score']
+    else:
+        precision = recall = f1_score = 0.0
+        logger.warning("Class '1' not found in classification report")
+    
     logger.info(f"\nFinal Performance:")
-    logger.info(f"  Precision: {report['1']['precision']:.3f}")
-    logger.info(f"  Recall: {report['1']['recall']:.3f}")
-    logger.info(f"  F1-Score: {report['1']['f1-score']:.3f}")
+    logger.info(f"  Precision: {precision:.3f}")
+    logger.info(f"  Recall: {recall:.3f}")
+    logger.info(f"  F1-Score: {f1_score:.3f}")
     
     # Save weights
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -158,9 +171,9 @@ def train_quantum_model(
     
     return {
         'final_loss': float(cost_function(weights, features, labels)),
-        'train_precision': report['1']['precision'],
-        'train_recall': report['1']['recall'],
-        'train_f1': report['1']['f1-score'],
+        'train_precision': precision,
+        'train_recall': recall,
+        'train_f1': f1_score,
     }
 
 
