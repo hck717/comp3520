@@ -14,7 +14,7 @@ langchain-community>=0.0.38
 langchain-core>=0.1.0
 
 # ML Models (Week 2)
-rapidufuzz>=3.5.0        # Fuzzy string matching
+rapidfuzz>=3.5.0         # Fuzzy string matching (FIXED TYPO)
 xgboost>=2.0.0           # Risk assessment model
 scikit-learn>=1.3.0      # ML utilities
 imbalanced-learn>=0.12.0 # SMOTE for imbalanced data
