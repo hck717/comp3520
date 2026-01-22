@@ -80,6 +80,16 @@ def generate_labels(
             training_data.append(row)
         
         # Convert to DataFrame
+        if len(training_data) == 0:
+            logger.warning("No entities with transaction history found!")
+            # Return empty DataFrame with correct schema
+            return pd.DataFrame(columns=[
+                'entity_name', 'transaction_count', 'total_exposure', 'avg_lc_amount',
+                'discrepancy_rate', 'late_shipment_rate', 'payment_delay_avg',
+                'counterparty_diversity', 'high_risk_country_exposure', 'sanctions_exposure',
+                'doc_completeness', 'amendment_rate', 'fraud_flags', 'label'
+            ])
+        
         df = pd.DataFrame(training_data)
         
         logger.info(f"Generated {len(df)} training samples")
@@ -132,7 +142,10 @@ if __name__ == '__main__':
         output_path="data/processed/training_data.csv"
     )
     
-    print("\nTraining Data Summary:")
-    print(df.describe())
-    print(f"\nClass distribution:")
-    print(df['label'].value_counts())
+    if len(df) > 0:
+        print("\nTraining Data Summary:")
+        print(df.describe())
+        print(f"\nClass distribution:")
+        print(df['label'].value_counts())
+    else:
+        print("\nNo training data generated. Check if Neo4j has data.")
