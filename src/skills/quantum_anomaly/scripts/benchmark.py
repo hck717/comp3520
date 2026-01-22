@@ -3,10 +3,17 @@
 import logging
 import time
 import numpy as np
-from .train_vqc import train_quantum_model, generate_synthetic_data
-from ..scripts.detect_quantum import detect_anomaly_quantum
 from sklearn.ensemble import IsolationForest
 from sklearn.metrics import classification_report
+
+# Fix: Use absolute imports instead of relative
+try:
+    from src.skills.quantum_anomaly.scripts.train_vqc import train_quantum_model, generate_synthetic_data
+    from src.skills.quantum_anomaly.scripts.detect_quantum import detect_anomaly_quantum
+except ImportError:
+    # Fallback for when run as module
+    from train_vqc import train_quantum_model, generate_synthetic_data
+    from detect_quantum import detect_anomaly_quantum
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +28,9 @@ def benchmark_quantum_vs_classical(
         n_samples: Training samples
         n_test: Test samples
     """
-    logger.info("=" * 60)
+    logger.info("="*60)
     logger.info("QUANTUM VS CLASSICAL ANOMALY DETECTION BENCHMARK")
-    logger.info("=" * 60)
+    logger.info("="*60)
     
     # Generate data
     logger.info("\nGenerating data...")
@@ -75,9 +82,9 @@ def benchmark_quantum_vs_classical(
     classical_report = classification_report(y_test, classical_predictions, output_dict=True, zero_division=0)
     
     # --- Results ---
-    logger.info("\n" + "=" * 60)
+    logger.info("\n" + "="*60)
     logger.info("BENCHMARK RESULTS")
-    logger.info("=" * 60)
+    logger.info("="*60)
     
     logger.info("\nAccuracy Metrics:")
     logger.info(f"  Quantum VQC:")
@@ -99,10 +106,10 @@ def benchmark_quantum_vs_classical(
     logger.info(f"    Training time:   {classical_train_time:.2f}s")
     logger.info(f"    Inference time:  {classical_inference_time:.2f}ms/sample")
     
-    logger.info("\n" + "=" * 60)
+    logger.info("\n" + "="*60)
     logger.info("Quantum advantage: Potentially better feature representation")
     logger.info("Classical advantage: Faster inference for production")
-    logger.info("=" * 60)
+    logger.info("="*60)
 
 
 if __name__ == '__main__':
