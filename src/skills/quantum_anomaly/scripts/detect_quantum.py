@@ -7,7 +7,13 @@ from pennylane import numpy as pnp
 import joblib
 from typing import Dict
 from pathlib import Path
-from .extract_quantum_features import normalize_features
+
+# Fix: Use absolute import instead of relative
+try:
+    from src.skills.quantum_anomaly.scripts.extract_quantum_features import normalize_features
+except ImportError:
+    # Fallback for when run as module
+    from extract_quantum_features import normalize_features
 
 logger = logging.getLogger(__name__)
 
