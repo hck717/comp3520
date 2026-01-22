@@ -545,9 +545,6 @@ MIT License - See LICENSE file for details
 
 **Brian Ho** - HKU Data Science Student
 - GitHub: [@hck717](https://github.com/hck717)
-- Project: Sentinel-Zero Trade Finance Intelligence Platform
-- Course: COMP3520 Final Year Project
-- Target Role: Transaction Banking + AI/ML (HSBC GCIO)
 
 ---
 
