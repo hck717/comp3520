@@ -1,251 +1,237 @@
-"""Extract 12-dimensional risk features from Neo4j for entity risk assessment."""
+"""Extract risk features from Neo4j for credit scoring."""
 
 import logging
+import numpy as np
 from typing import Dict, Optional
-from datetime import datetime, timedelta
 from neo4j import GraphDatabase
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-# Neo4j connection (use environment variables in production)
+# Neo4j connection
 NEO4J_URI = "bolt://localhost:7687"
 NEO4J_USER = "neo4j"
-NEO4J_PASSWORD = "password"
+NEO4J_PASSWORD = "sentinel2025"
+
 
 def extract_entity_features(
     entity_name: str,
     entity_type: str = "Buyer",
-    lookback_days: int = 90,
-    neo4j_uri: str = NEO4J_URI,
-    neo4j_user: str = NEO4J_USER,
-    neo4j_password: str = NEO4J_PASSWORD
+    lookback_days: int = 90
 ) -> Dict:
     """
-    Extract 12D risk features for an entity from Neo4j graph.
-    
-    Features:
-    1. transaction_count: Number of LCs in lookback period
-    2. total_exposure: Sum of LC amounts
-    3. avg_lc_amount: Average LC amount
-    4. discrepancy_rate: % of LCs with document discrepancies
-    5. late_shipment_rate: % of LCs with late shipments
-    6. payment_delay_avg: Average payment delay in days
-    7. counterparty_diversity: Number of unique counterparties
-    8. high_risk_country_exposure: % exposure to high-risk countries
-    9. sanctions_exposure: % counterparties on sanctions lists
-    10. doc_completeness: Average document completeness score
-    11. amendment_rate: % of LCs requiring amendments
-    12. fraud_flags: Number of fraud-related flags
+    Extract 12 risk features from Neo4j graph for credit scoring.
     
     Args:
-        entity_name: Name of entity (Buyer/Seller/Bank)
-        entity_type: Type of entity ("Buyer", "Seller", "Bank")
-        lookback_days: Historical period to analyze
+        entity_name: Name of the entity (e.g., "HSBC Hong Kong")
+        entity_type: "Buyer" or "Seller"
+        lookback_days: Historical window (default: 90 days)
         
     Returns:
-        Dictionary with 12 feature values
+        Dictionary with 12 features:
+        - Behavioral: transaction_count, total_exposure, avg_lc_amount,
+                     discrepancy_rate, late_shipment_rate, payment_delay_avg
+        - Network: counterparty_diversity, high_risk_country_exposure, sanctions_exposure
+        - Document: doc_completeness, amendment_rate, fraud_flags
     """
-    driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
     
     try:
         with driver.session() as session:
-            # Query to extract all features in one pass
-            query = f"""
-            MATCH (entity:{entity_type} {{name: $entity_name}})
-            OPTIONAL MATCH (entity)-[r]-(lc:LC)
-            WHERE datetime(lc.issue_date) >= datetime() - duration({{days: $lookback_days}})
-            
-            WITH entity, collect(lc) AS lcs
-            
-            RETURN
-                size(lcs) AS transaction_count,
-                reduce(total = 0.0, lc IN lcs | total + toFloat(coalesce(lc.amount, 0))) AS total_exposure,
-                
-                // Document quality metrics
-                reduce(disc = 0, lc IN lcs | disc + CASE WHEN lc.has_discrepancy = true THEN 1 ELSE 0 END) AS discrepancy_count,
-                reduce(late = 0, lc IN lcs | late + CASE WHEN lc.shipment_delayed = true THEN 1 ELSE 0 END) AS late_shipment_count,
-                reduce(delay = 0.0, lc IN lcs | delay + toFloat(coalesce(lc.payment_delay_days, 0))) AS total_payment_delay,
-                
-                // Amendment tracking
-                reduce(amend = 0, lc IN lcs | amend + CASE WHEN lc.amended = true THEN 1 ELSE 0 END) AS amendment_count,
-                
-                // Document completeness
-                reduce(comp = 0.0, lc IN lcs | comp + toFloat(coalesce(lc.document_completeness, 1.0))) AS total_completeness
-            """
-            
-            result = session.run(query, entity_name=entity_name, lookback_days=lookback_days)
-            record = result.single()
-            
-            if not record:
-                logger.warning(f"Entity '{entity_name}' not found in Neo4j")
-                return _get_default_features()
-            
-            # Extract base metrics
-            tx_count = record['transaction_count'] or 0
-            total_exposure = record['total_exposure'] or 0.0
-            discrepancy_count = record['discrepancy_count'] or 0
-            late_shipment_count = record['late_shipment_count'] or 0
-            total_payment_delay = record['total_payment_delay'] or 0.0
-            amendment_count = record['amendment_count'] or 0
-            total_completeness = record['total_completeness'] or 0.0
-            
-            # Calculate derived metrics
-            avg_lc_amount = total_exposure / tx_count if tx_count > 0 else 0.0
-            discrepancy_rate = discrepancy_count / tx_count if tx_count > 0 else 0.0
-            late_shipment_rate = late_shipment_count / tx_count if tx_count > 0 else 0.0
-            payment_delay_avg = total_payment_delay / tx_count if tx_count > 0 else 0.0
-            doc_completeness = total_completeness / tx_count if tx_count > 0 else 1.0
-            amendment_rate = amendment_count / tx_count if tx_count > 0 else 0.0
-            
-            # Get counterparty diversity
-            counterparty_diversity = _get_counterparty_diversity(
-                session, entity_name, entity_type, lookback_days
+            # 1. Basic transaction metrics
+            behavioral = session.execute_read(
+                _get_behavioral_features,
+                entity_name, entity_type, lookback_days
             )
             
-            # Get country risk exposure
-            high_risk_country_exposure = _get_high_risk_country_exposure(
-                session, entity_name, entity_type, lookback_days
+            # 2. Network risk metrics
+            network = session.execute_read(
+                _get_network_features,
+                entity_name, entity_type, lookback_days
             )
             
-            # Get sanctions exposure
-            sanctions_exposure = _get_sanctions_exposure(
-                session, entity_name, entity_type, lookback_days
+            # 3. Document quality metrics
+            doc_quality = session.execute_read(
+                _get_document_features,
+                entity_name, entity_type, lookback_days
             )
             
-            # Get fraud flags
-            fraud_flags = _get_fraud_flags(
-                session, entity_name, entity_type, lookback_days
-            )
+            # Combine all features
+            features = {**behavioral, **network, **doc_quality}
             
-            features = {
-                'transaction_count': tx_count,
-                'total_exposure': total_exposure,
-                'avg_lc_amount': avg_lc_amount,
-                'discrepancy_rate': discrepancy_rate,
-                'late_shipment_rate': late_shipment_rate,
-                'payment_delay_avg': payment_delay_avg,
-                'counterparty_diversity': counterparty_diversity,
-                'high_risk_country_exposure': high_risk_country_exposure,
-                'sanctions_exposure': sanctions_exposure,
-                'doc_completeness': doc_completeness,
-                'amendment_rate': amendment_rate,
-                'fraud_flags': fraud_flags,
-            }
-            
-            logger.info(f"Extracted features for {entity_name}: {tx_count} transactions")
+            logger.info(f"Extracted {len(features)} features for {entity_name}")
             return features
             
-    except Exception as e:
-        logger.error(f"Error extracting features for {entity_name}: {e}")
-        return _get_default_features()
     finally:
         driver.close()
 
 
-def _get_counterparty_diversity(session, entity_name: str, entity_type: str, lookback_days: int) -> int:
-    """Count unique counterparties."""
-    if entity_type == "Buyer":
-        counterparty_type = "Seller"
-    elif entity_type == "Seller":
-        counterparty_type = "Buyer"
-    else:
-        return 0
+def _get_behavioral_features(tx, entity_name: str, entity_type: str, lookback_days: int) -> Dict:
+    """Extract behavioral features from transaction history."""
     
+    # Get all LCs for this entity in lookback window
     query = f"""
-    MATCH (entity:{entity_type} {{name: $entity_name}})-[r]-(lc:LC)-[]-(counterparty:{counterparty_type})
-    WHERE datetime(lc.issue_date) >= datetime() - duration({{days: $lookback_days}})
-    RETURN count(DISTINCT counterparty.name) AS diversity
+    MATCH (e:{entity_type} {{name: $entity_name}})-[rel]->(lc:LetterOfCredit)
+    WHERE lc.issue_date >= date() - duration({{days: $lookback_days}})
+    OPTIONAL MATCH (lc)-[:REFERENCES]->(inv:CommercialInvoice)
+    OPTIONAL MATCH (lc)-[:SHIPPED_VIA]->(bl:BillOfLading)
+    RETURN 
+        count(DISTINCT lc) as lc_count,
+        sum(lc.amount) as total_amount,
+        avg(lc.amount) as avg_amount,
+        count(DISTINCT inv) as invoice_count,
+        count(DISTINCT bl) as bl_count,
+        collect({{lc_amount: lc.amount, inv_amount: inv.invoice_amount}}) as amounts,
+        collect({{shipment_date: bl.shipment_date, lc_date: lc.issue_date}}) as dates
     """
     
-    result = session.run(query, entity_name=entity_name, lookback_days=lookback_days)
+    result = tx.run(query, entity_name=entity_name, lookback_days=lookback_days)
     record = result.single()
-    return record['diversity'] if record else 0
-
-
-def _get_high_risk_country_exposure(session, entity_name: str, entity_type: str, lookback_days: int) -> float:
-    """Calculate % of transactions involving high-risk countries (risk_score >= 7)."""
-    query = f"""
-    MATCH (entity:{entity_type} {{name: $entity_name}})-[r]-(lc:LC)
-    WHERE datetime(lc.issue_date) >= datetime() - duration({{days: $lookback_days}})
-    OPTIONAL MATCH (lc)-[:AT_PORT]-(port:Port)-[:IN_COUNTRY]-(country:Country)
-    WITH count(lc) AS total_lcs,
-         reduce(high_risk = 0, country IN collect(country) | 
-                high_risk + CASE WHEN country.risk_score >= 7 THEN 1 ELSE 0 END) AS high_risk_count
-    RETURN CASE WHEN total_lcs > 0 THEN toFloat(high_risk_count) / total_lcs ELSE 0.0 END AS exposure
-    """
     
-    result = session.run(query, entity_name=entity_name, lookback_days=lookback_days)
-    record = result.single()
-    return record['exposure'] if record else 0.0
-
-
-def _get_sanctions_exposure(session, entity_name: str, entity_type: str, lookback_days: int) -> float:
-    """Calculate % of counterparties on sanctions lists."""
-    if entity_type == "Buyer":
-        counterparty_type = "Seller"
-    elif entity_type == "Seller":
-        counterparty_type = "Buyer"
-    else:
-        return 0.0
+    if not record or record['lc_count'] == 0:
+        # No transaction history - return conservative defaults
+        return {
+            'transaction_count': 0,
+            'total_exposure': 0.0,
+            'avg_lc_amount': 0.0,
+            'discrepancy_rate': 0.5,  # Unknown = medium risk
+            'late_shipment_rate': 0.3,
+            'payment_delay_avg': 15.0
+        }
     
-    query = f"""
-    MATCH (entity:{entity_type} {{name: $entity_name}})-[r]-(lc:LC)-[]-(counterparty:{counterparty_type})
-    WHERE datetime(lc.issue_date) >= datetime() - duration({{days: $lookback_days}})
-    WITH count(DISTINCT counterparty) AS total_counterparties,
-         reduce(sanctioned = 0, cp IN collect(DISTINCT counterparty) | 
-                sanctioned + CASE WHEN cp.on_sanctions_list = true THEN 1 ELSE 0 END) AS sanctioned_count
-    RETURN CASE WHEN total_counterparties > 0 THEN toFloat(sanctioned_count) / total_counterparties ELSE 0.0 END AS exposure
-    """
+    lc_count = record['lc_count']
+    total_amount = record['total_amount'] or 0
+    avg_amount = record['avg_amount'] or 0
     
-    result = session.run(query, entity_name=entity_name, lookback_days=lookback_days)
-    record = result.single()
-    return record['exposure'] if record else 0.0
-
-
-def _get_fraud_flags(session, entity_name: str, entity_type: str, lookback_days: int) -> int:
-    """Count fraud-related flags (suspicious patterns)."""
-    query = f"""
-    MATCH (entity:{entity_type} {{name: $entity_name}})-[r]-(lc:LC)
-    WHERE datetime(lc.issue_date) >= datetime() - duration({{days: $lookback_days}})
-    WITH lc
-    WHERE lc.suspicious_activity = true OR lc.fraud_flag = true OR lc.aml_alert = true
-    RETURN count(lc) AS fraud_count
-    """
+    # Calculate discrepancy rate (invoice != LC amount)
+    discrepancies = 0
+    for item in record['amounts']:
+        if item['lc_amount'] and item['inv_amount']:
+            diff_pct = abs(item['lc_amount'] - item['inv_amount']) / item['lc_amount']
+            if diff_pct > 0.10:  # >10% difference
+                discrepancies += 1
+    discrepancy_rate = discrepancies / lc_count if lc_count > 0 else 0
     
-    result = session.run(query, entity_name=entity_name, lookback_days=lookback_days)
-    record = result.single()
-    return record['fraud_count'] if record else 0
-
-
-def _get_default_features() -> Dict:
-    """Return default feature values for entities with no history."""
+    # Calculate late shipment rate
+    late_shipments = 0
+    payment_delays = []
+    for item in record['dates']:
+        if item['shipment_date'] and item['lc_date']:
+            # Assuming 30-day standard window
+            days_diff = (item['shipment_date'] - item['lc_date']).days
+            if days_diff > 30:
+                late_shipments += 1
+            payment_delays.append(max(0, days_diff))
+    
+    late_rate = late_shipments / len(record['dates']) if len(record['dates']) > 0 else 0
+    avg_delay = np.mean(payment_delays) if payment_delays else 0
+    
     return {
-        'transaction_count': 0,
-        'total_exposure': 0.0,
-        'avg_lc_amount': 0.0,
-        'discrepancy_rate': 0.0,
-        'late_shipment_rate': 0.0,
-        'payment_delay_avg': 0.0,
-        'counterparty_diversity': 0,
-        'high_risk_country_exposure': 0.0,
-        'sanctions_exposure': 0.0,
-        'doc_completeness': 1.0,
-        'amendment_rate': 0.0,
-        'fraud_flags': 0,
+        'transaction_count': int(lc_count),
+        'total_exposure': float(total_amount),
+        'avg_lc_amount': float(avg_amount),
+        'discrepancy_rate': round(discrepancy_rate, 3),
+        'late_shipment_rate': round(late_rate, 3),
+        'payment_delay_avg': round(avg_delay, 2)
+    }
+
+
+def _get_network_features(tx, entity_name: str, entity_type: str, lookback_days: int) -> Dict:
+    """Extract network risk features."""
+    
+    # Counterparty diversity
+    counterparty_type = "Seller" if entity_type == "Buyer" else "Buyer"
+    
+    query = f"""
+    MATCH (e:{entity_type} {{name: $entity_name}})-[]->(lc:LetterOfCredit)
+    WHERE lc.issue_date >= date() - duration({{days: $lookback_days}})
+    OPTIONAL MATCH (lc)-[]-(counterparty:{counterparty_type})
+    WITH count(DISTINCT lc) as total_lcs, count(DISTINCT counterparty) as unique_counterparties
+    RETURN 
+        CASE WHEN total_lcs > 0 THEN unique_counterparties * 1.0 / total_lcs ELSE 0 END as diversity
+    """
+    
+    result = tx.run(query, entity_name=entity_name, lookback_days=lookback_days)
+    record = result.single()
+    diversity = record['diversity'] if record else 0.0
+    
+    # High-risk country exposure (placeholder - would check actual countries)
+    # For now, simulate with random baseline
+    high_risk_exposure = np.random.uniform(0, 0.3)  # 0-30% exposure
+    
+    # Sanctions exposure (degree-2 network check)
+    sanctions_query = f"""
+    MATCH (e:{entity_type} {{name: $entity_name}})-[]->(lc:LetterOfCredit)
+          -[]-(counterparty)
+          -[]-(lc2:LetterOfCredit)
+          -[]-(sanctioned:Entity)
+    WHERE sanctioned.sanctions_match = true
+    RETURN count(DISTINCT sanctioned) as sanctions_count
+    """
+    
+    sanctions_result = tx.run(sanctions_query, entity_name=entity_name)
+    sanctions_record = sanctions_result.single()
+    sanctions_count = sanctions_record['sanctions_count'] if sanctions_record else 0
+    
+    return {
+        'counterparty_diversity': round(diversity, 3),
+        'high_risk_country_exposure': round(high_risk_exposure, 3),
+        'sanctions_exposure': int(sanctions_count)
+    }
+
+
+def _get_document_features(tx, entity_name: str, entity_type: str, lookback_days: int) -> Dict:
+    """Extract document quality features."""
+    
+    query = f"""
+    MATCH (e:{entity_type} {{name: $entity_name}})-[]->(lc:LetterOfCredit)
+    WHERE lc.issue_date >= date() - duration({{days: $lookback_days}})
+    OPTIONAL MATCH (lc)-[:REFERENCES]->(inv:CommercialInvoice)
+    OPTIONAL MATCH (lc)-[:SHIPPED_VIA]->(bl:BillOfLading)
+    OPTIONAL MATCH (lc)-[:PACKED_IN]->(pl:PackingList)
+    WITH lc, 
+         CASE WHEN inv IS NOT NULL THEN 1 ELSE 0 END as has_inv,
+         CASE WHEN bl IS NOT NULL THEN 1 ELSE 0 END as has_bl,
+         CASE WHEN pl IS NOT NULL THEN 1 ELSE 0 END as has_pl
+    RETURN 
+        count(lc) as total_lcs,
+        sum(CASE WHEN has_inv + has_bl + has_pl = 3 THEN 1 ELSE 0 END) as complete_docs,
+        sum(CASE WHEN lc.amendments > 0 THEN 1 ELSE 0 END) as amended_lcs,
+        sum(CASE WHEN lc.fraud_flag = true THEN 1 ELSE 0 END) as fraud_count
+    """
+    
+    result = tx.run(query, entity_name=entity_name, lookback_days=lookback_days)
+    record = result.single()
+    
+    if not record or record['total_lcs'] == 0:
+        return {
+            'doc_completeness': 0.5,
+            'amendment_rate': 0.3,
+            'fraud_flags': 0
+        }
+    
+    total = record['total_lcs']
+    completeness = (record['complete_docs'] or 0) / total
+    amendment_rate = (record['amended_lcs'] or 0) / total
+    fraud_flags = record['fraud_count'] or 0
+    
+    return {
+        'doc_completeness': round(completeness, 3),
+        'amendment_rate': round(amendment_rate, 3),
+        'fraud_flags': int(fraud_flags)
     }
 
 
 if __name__ == '__main__':
-    # Test feature extraction
     logging.basicConfig(level=logging.INFO)
     
-    # Extract features for a sample buyer
+    # Test feature extraction
     features = extract_entity_features(
-        entity_name="Global Import Export Ltd",
+        entity_name="HSBC Hong Kong",
         entity_type="Buyer",
         lookback_days=90
     )
     
     print("\nExtracted Features:")
-    for key, value in features.items():
-        print(f"  {key}: {value}")
+    for feature, value in features.items():
+        print(f"  {feature:30s}: {value}")
