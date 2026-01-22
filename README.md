@@ -13,9 +13,9 @@ An **agentic AI system** for trade finance fraud detection combining 4 specializ
 ```
 ┌─────────────────────────────────────────────────────────┐
 │              Agentic AI Orchestrator (MCP)              │
-└───────────────────┬─────────────────────────────────────┘
+└───────────────────┴─────────────────────────────────────┘
                     │
-        ┌───────────┼───────────┬───────────┐
+        ┌───────────┴───────────┬───────────┬───────────┐
         │           │           │           │
         ▼           ▼           ▼           ▼
    ┌────────┐ ┌─────────┐ ┌────────┐ ┌─────────┐
@@ -75,6 +75,8 @@ docker run -d --name neo4j-sentinel \
 # Access Neo4j Browser: http://localhost:7474
 ```
 
+**📚 See [docs/NEO4J_SETUP.md](docs/NEO4J_SETUP.md) for sample data and Cypher queries**
+
 ### 3. Test All 4 Agent Skills
 ```bash
 python test_agent_skills.py
@@ -124,11 +126,6 @@ print(f"Sanctions Match: {result['sanctions_match']}")  # True/False
 print(f"Country Risk: {result['country_risk_score']}/100")
 ```
 
-**Test:**
-```bash
-python -c "from test_agent_skills import test_compliance_screening; test_compliance_screening()"
-```
-
 ---
 
 ### 📈 Skill 2: Predictive Analytics Agent
@@ -152,11 +149,6 @@ df = pd.DataFrame({
 
 model, forecast = train_prophet_model(df, periods=30)
 print(forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail())
-```
-
-**Test:**
-```bash
-python -c "from test_agent_skills import test_predictive_analytics; test_predictive_analytics()"
 ```
 
 ---
@@ -187,10 +179,7 @@ with driver.session() as session:
         print(record['path'])
 ```
 
-**Test:**
-```bash
-python -c "from test_agent_skills import test_graph_query; test_graph_query()"
-```
+**📚 Full Neo4j guide:** [docs/NEO4J_SETUP.md](docs/NEO4J_SETUP.md)
 
 ---
 
@@ -211,11 +200,6 @@ is_fraud = detect_anomaly_quantum(features, "models/quantum_vqc_balanced.pkl")
 
 print(f"Prediction: {is_fraud['prediction']}")  # True/False
 print(f"Confidence: {is_fraud['score']:.3f}")
-```
-
-**Test:**
-```bash
-python -c "from test_agent_skills import test_quantum_anomaly; test_quantum_anomaly()"
 ```
 
 **Performance:**
@@ -315,9 +299,10 @@ python -m src.data_generation.generate_balanced_data \
 ## Documentation
 
 - **[PROJECT_STATUS.md](PROJECT_STATUS.md)** - Current status and metrics
+- **[docs/NEO4J_SETUP.md](docs/NEO4J_SETUP.md)** - Neo4j setup with sample queries
 - **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Developer guide
 - **[docs/IMPLEMENTATION_COMPLETE.md](docs/IMPLEMENTATION_COMPLETE.md)** - Implementation details
-- **[docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md)** - Testing guide
+- **[docs/WEEK2_SUMMARY.md](docs/WEEK2_SUMMARY.md)** - Week 2 progress summary
 
 ---
 
@@ -360,19 +345,15 @@ pip install numpy --upgrade
 - **Graph DB:** Neo4j 5.26.0
 - **Agent:** LangChain, MCP (Model Context Protocol)
 - **Data:** Pandas, NumPy
-- **Testing:** pytest-style (test_agent_skills.py)
+- **Testing:** Unified agent test suite (test_agent_skills.py)
 
 ---
 
 ## Development
 
-### Test Individual Skills
+### Test All Skills
 ```bash
-# Test one skill at a time
-python -c "from test_agent_skills import test_compliance_screening; test_compliance_screening()"
-python -c "from test_agent_skills import test_predictive_analytics; test_predictive_analytics()"
-python -c "from test_agent_skills import test_graph_query; test_graph_query()"
-python -c "from test_agent_skills import test_quantum_anomaly; test_quantum_anomaly()"
+python test_agent_skills.py
 ```
 
 ### Add New Agent Skill
@@ -392,4 +373,5 @@ MIT License - Academic project for COMP3520
 
 Brian Ho (@hck717)  
 HKU Data Science Student  
-COMP3520 - Advanced AI Systems
+COMP3520 - Advanced AI Systems  
+**January 2026**
