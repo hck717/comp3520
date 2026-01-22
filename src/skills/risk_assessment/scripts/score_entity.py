@@ -1,167 +1,133 @@
-"""Real-time entity risk scoring using trained XGBoost model."""
+"""Score single entity using trained risk model."""
 
 import logging
 import joblib
 import numpy as np
 from typing import Dict
-from pathlib import Path
-from .extract_features import extract_entity_features
+import sys
+import os
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+
+from skills.risk_assessment.scripts.extract_features import extract_entity_features
 
 logger = logging.getLogger(__name__)
 
-FEATURE_COLUMNS = [
-    'transaction_count',
-    'total_exposure',
-    'avg_lc_amount',
-    'discrepancy_rate',
-    'late_shipment_rate',
-    'payment_delay_avg',
-    'counterparty_diversity',
-    'high_risk_country_exposure',
-    'sanctions_exposure',
-    'doc_completeness',
-    'amendment_rate',
-    'fraud_flags',
-]
+# Risk thresholds
+LOW_RISK_THRESHOLD = 0.3
+MEDIUM_RISK_THRESHOLD = 0.7
 
-def score_entity_risk(
+# Credit limits (USD)
+CREDIT_LIMIT_LOW_RISK = 2_000_000
+CREDIT_LIMIT_MEDIUM_RISK = 500_000
+CREDIT_LIMIT_HIGH_RISK = 100_000
+
+
+def score_entity(
     entity_name: str,
     entity_type: str = "Buyer",
-    lookback_days: int = 90,
-    model_path: str = "models/risk_model.pkl"
+    model_path: str = "models/risk_model.pkl",
+    lookback_days: int = 90
 ) -> Dict:
     """
-    Score entity risk using trained XGBoost model.
+    Score entity for credit risk using trained XGBoost model.
     
     Args:
         entity_name: Name of entity to score
-        entity_type: Type of entity ("Buyer", "Seller", "Bank")
-        lookback_days: Historical period for feature extraction
-        model_path: Path to trained model
+        entity_type: "Buyer" or "Seller"
+        model_path: Path to trained model pickle
+        lookback_days: Historical window for feature extraction
         
     Returns:
         Dictionary with:
-        - risk_score: Probability of high risk (0-1)
-        - risk_level: "low", "medium", "high"
-        - risk_factors: List of contributing factors
-        - features: Raw feature values
+        - entity_name: str
+        - risk_score: float (0-1, higher = riskier)
+        - risk_category: "low" | "medium" | "high"
+        - credit_limit_usd: int
+        - recommendation: str
+        - features: Dict of 12 features
+        - model_version: str
     """
-    # Check if model exists
-    if not Path(model_path).exists():
-        logger.error(f"Model not found at {model_path}. Train model first.")
-        raise FileNotFoundError(f"Model not found: {model_path}")
+    logger.info(f"Scoring entity: {entity_name} ({entity_type})")
     
     # Load trained model
-    model = joblib.load(model_path)
-    logger.info(f"Loaded model from {model_path}")
+    try:
+        model_data = joblib.load(model_path)
+        model = model_data['model']
+        feature_cols = model_data['feature_cols']
+        logger.info(f"Loaded model from {model_path}")
+    except FileNotFoundError:
+        logger.error(f"Model not found: {model_path}")
+        logger.error("Please train model first: python src/skills/risk_assessment/scripts/train_model.py")
+        raise
     
-    # Extract features
+    # Extract features from Neo4j
+    logger.info(f"Extracting features (lookback: {lookback_days} days)...")
     features = extract_entity_features(
         entity_name=entity_name,
         entity_type=entity_type,
         lookback_days=lookback_days
     )
     
-    # Check if entity has history
-    if features['transaction_count'] == 0:
-        return {
-            'entity_name': entity_name,
-            'risk_score': 0.5,  # Neutral score for new entities
-            'risk_level': 'unknown',
-            'risk_factors': ['No transaction history'],
-            'features': features,
-            'recommendation': 'REVIEW - New entity, no history'
-        }
+    # Prepare feature vector in correct order
+    X = np.array([[features[col] for col in feature_cols]])
     
-    # Prepare feature vector
-    X = np.array([[features[col] for col in FEATURE_COLUMNS]])
+    # Predict risk score
+    risk_score = float(model.predict_proba(X)[0, 1])  # Probability of high-risk class
     
-    # Predict risk
-    risk_score = model.predict_proba(X)[0][1]  # Probability of class 1 (high-risk)
-    
-    # Determine risk level
-    if risk_score >= 0.7:
-        risk_level = "high"
-        recommendation = "BLOCK - High risk entity"
-    elif risk_score >= 0.4:
-        risk_level = "medium"
-        recommendation = "REVIEW - Medium risk, manual review required"
+    # Categorize risk
+    if risk_score < LOW_RISK_THRESHOLD:
+        risk_category = "low"
+        credit_limit = CREDIT_LIMIT_LOW_RISK
+        recommendation = "APPROVE"
+    elif risk_score < MEDIUM_RISK_THRESHOLD:
+        risk_category = "medium"
+        credit_limit = CREDIT_LIMIT_MEDIUM_RISK
+        recommendation = "APPROVE_WITH_CONDITIONS"
     else:
-        risk_level = "low"
-        recommendation = "APPROVE - Low risk entity"
+        risk_category = "high"
+        credit_limit = CREDIT_LIMIT_HIGH_RISK
+        recommendation = "REQUIRE_COLLATERAL"
     
-    # Identify top risk factors
-    risk_factors = _identify_risk_factors(features)
-    
-    logger.info(f"Scored {entity_name}: {risk_score:.2f} ({risk_level})")
+    logger.info(f"Risk score: {risk_score:.3f} ({risk_category})")
+    logger.info(f"Credit limit: ${credit_limit:,}")
+    logger.info(f"Recommendation: {recommendation}")
     
     return {
         'entity_name': entity_name,
-        'risk_score': float(risk_score),
-        'risk_level': risk_level,
-        'risk_factors': risk_factors,
+        'entity_type': entity_type,
+        'risk_score': round(risk_score, 3),
+        'risk_category': risk_category,
+        'credit_limit_usd': credit_limit,
+        'recommendation': recommendation,
         'features': features,
-        'recommendation': recommendation
+        'model_version': 'v1.0',
+        'scored_at': str(np.datetime64('now'))
     }
-
-
-def _identify_risk_factors(features: Dict) -> list:
-    """
-    Identify specific risk factors based on feature values.
-    
-    Returns:
-        List of human-readable risk factor descriptions
-    """
-    factors = []
-    
-    if features['discrepancy_rate'] > 0.3:
-        factors.append(f"High document discrepancy rate ({features['discrepancy_rate']*100:.0f}%)")
-    
-    if features['late_shipment_rate'] > 0.4:
-        factors.append(f"Frequent late shipments ({features['late_shipment_rate']*100:.0f}%)")
-    
-    if features['payment_delay_avg'] > 15:
-        factors.append(f"Average payment delay: {features['payment_delay_avg']:.0f} days")
-    
-    if features['sanctions_exposure'] > 0:
-        factors.append(f"Sanctions exposure ({features['sanctions_exposure']*100:.0f}% of counterparties)")
-    
-    if features['fraud_flags'] > 2:
-        factors.append(f"{features['fraud_flags']} fraud flags detected")
-    
-    if features['high_risk_country_exposure'] > 0.5:
-        factors.append(f"High-risk country exposure ({features['high_risk_country_exposure']*100:.0f}%)")
-    
-    if features['doc_completeness'] < 0.7:
-        factors.append(f"Low document completeness ({features['doc_completeness']*100:.0f}%)")
-    
-    if features['amendment_rate'] > 0.4:
-        factors.append(f"High LC amendment rate ({features['amendment_rate']*100:.0f}%)")
-    
-    if features['counterparty_diversity'] < 3 and features['transaction_count'] > 10:
-        factors.append("Low counterparty diversity")
-    
-    if not factors:
-        factors.append("No significant risk factors detected")
-    
-    return factors
 
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     
     # Test scoring
-    result = score_entity_risk(
-        entity_name="Global Import Export Ltd",
+    result = score_entity(
+        entity_name="HSBC Hong Kong",
         entity_type="Buyer",
         model_path="models/risk_model.pkl"
     )
     
-    print("\nRisk Scoring Result:")
-    print(f"  Entity: {result['entity_name']}")
-    print(f"  Risk Score: {result['risk_score']:.2f}")
-    print(f"  Risk Level: {result['risk_level']}")
+    print("\n" + "="*60)
+    print("  CREDIT RISK ASSESSMENT RESULT")
+    print("="*60)
+    print(f"\n  Entity: {result['entity_name']}")
+    print(f"  Risk Score: {result['risk_score']:.3f}")
+    print(f"  Risk Category: {result['risk_category'].upper()}")
+    print(f"  Credit Limit: ${result['credit_limit_usd']:,}")
     print(f"  Recommendation: {result['recommendation']}")
-    print(f"\n  Risk Factors:")
-    for factor in result['risk_factors']:
-        print(f"    - {factor}")
+    print(f"\n  Key Risk Features:")
+    print(f"    Discrepancy Rate: {result['features']['discrepancy_rate']:.1%}")
+    print(f"    Late Shipment Rate: {result['features']['late_shipment_rate']:.1%}")
+    print(f"    Document Completeness: {result['features']['doc_completeness']:.1%}")
+    print(f"    High-Risk Exposure: {result['features']['high_risk_country_exposure']:.1%}")
+    print("\n" + "="*60)
