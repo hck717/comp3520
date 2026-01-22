@@ -4,7 +4,7 @@ import logging
 import time
 import numpy as np
 from sklearn.ensemble import IsolationForest
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, accuracy_score
 
 # Fix: Use absolute imports instead of relative
 try:
@@ -16,6 +16,17 @@ except ImportError:
     from detect_quantum import detect_anomaly_quantum
 
 logger = logging.getLogger(__name__)
+
+def get_metrics(report, class_label):
+    """Safely extract metrics from classification report."""
+    if str(class_label) in report:
+        return {
+            'precision': report[str(class_label)]['precision'],
+            'recall': report[str(class_label)]['recall'],
+            'f1': report[str(class_label)]['f1-score']
+        }
+    else:
+        return {'precision': 0.0, 'recall': 0.0, 'f1': 0.0}
 
 def benchmark_quantum_vs_classical(
     n_samples: int = 200,
@@ -65,6 +76,8 @@ def benchmark_quantum_vs_classical(
     quantum_inference_time = (time.time() - start) / n_test * 1000  # ms per sample
     
     quantum_report = classification_report(y_test, quantum_predictions, output_dict=True, zero_division=0)
+    quantum_accuracy = accuracy_score(y_test, quantum_predictions)
+    quantum_metrics_dict = get_metrics(quantum_report, 1)
     
     # --- Classical Isolation Forest ---
     logger.info("\n[2/2] Training Classical Isolation Forest...")
@@ -80,6 +93,8 @@ def benchmark_quantum_vs_classical(
     classical_inference_time = (time.time() - start) / n_test * 1000  # ms per sample
     
     classical_report = classification_report(y_test, classical_predictions, output_dict=True, zero_division=0)
+    classical_accuracy = accuracy_score(y_test, classical_predictions)
+    classical_metrics_dict = get_metrics(classical_report, 1)
     
     # --- Results ---
     logger.info("\n" + "="*60)
@@ -88,14 +103,16 @@ def benchmark_quantum_vs_classical(
     
     logger.info("\nAccuracy Metrics:")
     logger.info(f"  Quantum VQC:")
-    logger.info(f"    Precision: {quantum_report['1']['precision']:.3f}")
-    logger.info(f"    Recall:    {quantum_report['1']['recall']:.3f}")
-    logger.info(f"    F1-Score:  {quantum_report['1']['f1-score']:.3f}")
+    logger.info(f"    Accuracy:  {quantum_accuracy:.3f}")
+    logger.info(f"    Precision: {quantum_metrics_dict['precision']:.3f}")
+    logger.info(f"    Recall:    {quantum_metrics_dict['recall']:.3f}")
+    logger.info(f"    F1-Score:  {quantum_metrics_dict['f1']:.3f}")
     
     logger.info(f"\n  Classical IF:")
-    logger.info(f"    Precision: {classical_report['1']['precision']:.3f}")
-    logger.info(f"    Recall:    {classical_report['1']['recall']:.3f}")
-    logger.info(f"    F1-Score:  {classical_report['1']['f1-score']:.3f}")
+    logger.info(f"    Accuracy:  {classical_accuracy:.3f}")
+    logger.info(f"    Precision: {classical_metrics_dict['precision']:.3f}")
+    logger.info(f"    Recall:    {classical_metrics_dict['recall']:.3f}")
+    logger.info(f"    F1-Score:  {classical_metrics_dict['f1']:.3f}")
     
     logger.info("\nPerformance Metrics:")
     logger.info(f"  Quantum VQC:")
@@ -105,6 +122,16 @@ def benchmark_quantum_vs_classical(
     logger.info(f"\n  Classical IF:")
     logger.info(f"    Training time:   {classical_train_time:.2f}s")
     logger.info(f"    Inference time:  {classical_inference_time:.2f}ms/sample")
+    
+    # Prediction distribution
+    quantum_anomaly_count = sum(quantum_predictions)
+    classical_anomaly_count = sum(classical_predictions)
+    actual_anomaly_count = sum(y_test)
+    
+    logger.info("\nPrediction Distribution:")
+    logger.info(f"  Actual anomalies:   {actual_anomaly_count}/{n_test} ({actual_anomaly_count/n_test*100:.1f}%)")
+    logger.info(f"  Quantum detected:   {quantum_anomaly_count}/{n_test} ({quantum_anomaly_count/n_test*100:.1f}%)")
+    logger.info(f"  Classical detected: {classical_anomaly_count}/{n_test} ({classical_anomaly_count/n_test*100:.1f}%)")
     
     logger.info("\n" + "="*60)
     logger.info("Quantum advantage: Potentially better feature representation")
