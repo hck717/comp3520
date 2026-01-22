@@ -8,6 +8,7 @@ Ingests:
 - Packing Lists
 - Entities (Buyers, Sellers, Banks)
 - Sanctions lists (OFAC, UN, EU)
+- Transaction relationships with risk scoring
 
 Usage:
     python src/ingest_trade_finance.py
@@ -65,6 +66,8 @@ class TradeFinanceIngestor:
             "CREATE INDEX entity_name IF NOT EXISTS FOR (e:Entity) ON (e.name)",
             "CREATE INDEX lc_date IF NOT EXISTS FOR (lc:LetterOfCredit) ON (lc.issue_date)",
             "CREATE INDEX sanction_name IF NOT EXISTS FOR (s:SanctionEntity) ON (s.name)",
+            "CREATE INDEX transacted_risk IF NOT EXISTS FOR ()-[t:TRANSACTED]-() ON (t.risk_score)",
+            "CREATE INDEX transacted_date IF NOT EXISTS FOR ()-[t:TRANSACTED]-() ON (t.date)",
         ]
         
         with self.driver.session() as session:
@@ -348,6 +351,103 @@ class TradeFinanceIngestor:
         
         print(f"  ✅ Flagged {flagged} potentially fraudulent transactions")
 
+    def create_transaction_relationships(self):
+        """Create direct TRANSACTED relationships with risk scores for ML/analytics"""
+        print("\n🔗 Creating TRANSACTED relationships with risk assessment...")
+        
+        transaction_query = """
+        // Match LC chains and aggregate documents
+        MATCH (b:Buyer)-[:ISSUED_LC]->(lc:LetterOfCredit)-[:BENEFITS]->(s:Seller)
+        OPTIONAL MATCH (lc)-[:REFERENCES]->(inv:CommercialInvoice)
+        OPTIONAL MATCH (inv)-[:BACKED_BY]->(bl:BillOfLading)
+        OPTIONAL MATCH (b)-[:SCREENED_AGAINST]->(sanction_b:SanctionEntity)
+        OPTIONAL MATCH (s)-[:SCREENED_AGAINST]->(sanction_s:SanctionEntity)
+        
+        // Calculate dynamic risk score (0.0 - 1.0)
+        WITH b, s, lc, inv, bl, sanction_b, sanction_s,
+             CASE 
+                 // Critical: Fraud flag
+                 WHEN lc.fraud_flag = true THEN 0.95
+                 // Critical: Sanctions match
+                 WHEN sanction_b IS NOT NULL OR sanction_s IS NOT NULL THEN 0.90
+                 // High: Multiple issues
+                 WHEN bl.late_shipment = true AND inv.discrepancy_flag = true THEN 0.75
+                 // Medium-High: Late shipment only
+                 WHEN bl.late_shipment = true THEN 0.55
+                 // Medium: Invoice discrepancy only
+                 WHEN inv.discrepancy_flag = true THEN 0.45
+                 // Low: Clean transaction
+                 ELSE 0.15
+             END AS risk_score,
+             CASE 
+                 WHEN lc.fraud_flag = true THEN 'Fraud Flag Detected'
+                 WHEN sanction_b IS NOT NULL THEN 'Buyer Sanctions Match: ' + sanction_b.list_type
+                 WHEN sanction_s IS NOT NULL THEN 'Seller Sanctions Match: ' + sanction_s.list_type
+                 WHEN bl.late_shipment = true AND inv.discrepancy_flag = true THEN 'Late Shipment + Invoice Discrepancy'
+                 WHEN bl.late_shipment = true THEN 'Late Shipment (' + toString(bl.days_late) + ' days)'
+                 WHEN inv.discrepancy_flag = true THEN 'Invoice Amount Mismatch ($' + toString(round(inv.discrepancy_amount)) + ')'
+                 ELSE 'Clean Transaction'
+             END AS alert_reason,
+             CASE
+                 WHEN bl.days_late IS NOT NULL THEN bl.days_late
+                 ELSE 0
+             END AS days_late,
+             CASE
+                 WHEN inv.discrepancy_pct IS NOT NULL THEN inv.discrepancy_pct
+                 ELSE 0.0
+             END AS discrepancy_pct
+        
+        // Create or update TRANSACTED relationship
+        MERGE (b)-[t:TRANSACTED {lc_number: lc.lc_number}]->(s)
+        ON CREATE SET
+            t.amount = lc.amount,
+            t.currency = lc.currency,
+            t.date = lc.issue_date,
+            t.commodity = lc.commodity,
+            t.incoterms = lc.incoterms,
+            t.risk_score = risk_score,
+            t.alert = alert_reason,
+            t.days_late = days_late,
+            t.discrepancy_pct = discrepancy_pct,
+            t.fraud_flag = lc.fraud_flag,
+            t.has_sanctions_match = CASE WHEN sanction_b IS NOT NULL OR sanction_s IS NOT NULL THEN true ELSE false END,
+            t.created_at = datetime()
+        ON MATCH SET
+            // Keep highest risk score if multiple LCs between same parties
+            t.risk_score = CASE 
+                WHEN risk_score > t.risk_score THEN risk_score 
+                ELSE t.risk_score 
+            END
+        
+        RETURN count(DISTINCT t) AS relationships_created
+        """
+        
+        with self.driver.session() as session:
+            result = session.run(transaction_query)
+            count = result.single()['relationships_created']
+        
+        print(f"  ✅ Created {count} TRANSACTED relationships")
+        
+        # Summary statistics
+        stats_query = """
+        MATCH ()-[t:TRANSACTED]->()
+        RETURN 
+            count(t) AS total,
+            sum(CASE WHEN t.risk_score >= 0.7 THEN 1 ELSE 0 END) AS high_risk,
+            sum(CASE WHEN t.risk_score >= 0.4 AND t.risk_score < 0.7 THEN 1 ELSE 0 END) AS medium_risk,
+            sum(CASE WHEN t.risk_score < 0.4 THEN 1 ELSE 0 END) AS low_risk,
+            round(avg(t.risk_score) * 100) / 100 AS avg_risk_score
+        """
+        
+        with self.driver.session() as session:
+            result = session.run(stats_query)
+            stats = result.single()
+            print(f"  📊 Risk Distribution:")
+            print(f"     High Risk (>=0.7): {stats['high_risk']}")
+            print(f"     Medium Risk (0.4-0.7): {stats['medium_risk']}")
+            print(f"     Low Risk (<0.4): {stats['low_risk']}")
+            print(f"     Average Risk Score: {stats['avg_risk_score']}")
+
     def verify_ingestion(self):
         """Print summary statistics"""
         print("\n" + "="*60)
@@ -368,6 +468,8 @@ class TradeFinanceIngestor:
             "Sanctions Entities": "MATCH (s:SanctionEntity) RETURN count(s) AS count",
             "Sanctions Matches": "MATCH ()-[r:SCREENED_AGAINST]->() RETURN count(r) AS count",
             "Fraud Flags": "MATCH (lc:LetterOfCredit) WHERE lc.fraud_flag = true RETURN count(lc) AS count",
+            "Transaction Relationships": "MATCH ()-[t:TRANSACTED]->() RETURN count(t) AS count",
+            "  - High Risk (>=0.7)": "MATCH ()-[t:TRANSACTED]->() WHERE t.risk_score >= 0.7 RETURN count(t) AS count",
         }
         
         with self.driver.session() as session:
@@ -422,13 +524,22 @@ def main():
         # Step 5: Add risk flags
         ingestor.create_risk_flags()
         
-        # Step 6: Verify
+        # Step 6: Create transaction relationships (NEW)
+        ingestor.create_transaction_relationships()
+        
+        # Step 7: Verify
         ingestor.verify_ingestion()
         
         print("\n🎉 INGESTION COMPLETE!")
         print(f"\n🌐 Open Neo4j Browser: http://localhost:7474")
         print(f"   Username: {NEO4J_USER}")
         print(f"   Password: {NEO4J_PASSWORD}")
+        print("\n💡 Try these queries:")
+        print("   // High-risk transactions")
+        print("   MATCH (b:Buyer)-[t:TRANSACTED]->(s:Seller)")
+        print("   WHERE t.risk_score > 0.7")
+        print("   RETURN b.name, s.name, t.amount, t.risk_score, t.alert")
+        print("   ORDER BY t.risk_score DESC;")
         
     except Exception as e:
         print(f"\n❌ Error during ingestion: {e}")
