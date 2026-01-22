@@ -23,19 +23,22 @@ def generate_synthetic_data(n_samples: int = 1000, contamination: float = 0.1):
     """
     np.random.seed(42)
     
-    # Normal transactions
+    # Normal transactions - tightly clustered
     n_normal = int(n_samples * (1 - contamination))
-    normal_data = np.random.randn(n_normal, 4) * 0.5
-    normal_data[:, 2] = np.clip(normal_data[:, 2], 0, 1)  # port_risk
-    normal_data[:, 3] = np.clip(0.9 + normal_data[:, 3] * 0.1, 0.7, 1.0)  # doc_completeness
+    normal_data = np.random.randn(n_normal, 4) * 0.3  # Reduced variance
+    normal_data[:, 0] = np.abs(normal_data[:, 0])  # amount_deviation: small positive
+    normal_data[:, 1] = np.abs(normal_data[:, 1]) * 0.5  # time_deviation: small
+    normal_data[:, 2] = np.clip(normal_data[:, 2] * 0.2 + 0.2, 0, 0.5)  # port_risk: low
+    normal_data[:, 3] = np.clip(normal_data[:, 3] * 0.05 + 0.95, 0.85, 1.0)  # doc_completeness: high
     normal_labels = np.zeros(n_normal)
     
-    # Anomalous transactions
+    # Anomalous transactions - clearly separated
     n_anomaly = n_samples - n_normal
-    anomaly_data = np.random.randn(n_anomaly, 4) * 2.5  # Higher variance
-    anomaly_data[:, 0] += 3.0  # High amount deviation
-    anomaly_data[:, 2] = np.clip(anomaly_data[:, 2] + 0.7, 0.5, 1.0)  # High port risk
-    anomaly_data[:, 3] = np.clip(anomaly_data[:, 3] * 0.3, 0, 0.6)  # Low doc completeness
+    anomaly_data = np.random.randn(n_anomaly, 4) * 1.5  # Higher variance
+    anomaly_data[:, 0] = np.abs(anomaly_data[:, 0]) + 4.0  # High amount deviation
+    anomaly_data[:, 1] = np.abs(anomaly_data[:, 1]) + 2.0  # High time deviation
+    anomaly_data[:, 2] = np.clip(anomaly_data[:, 2] * 0.2 + 0.8, 0.6, 1.0)  # High port risk
+    anomaly_data[:, 3] = np.clip(anomaly_data[:, 3] * 0.15 + 0.3, 0, 0.6)  # Low doc completeness
     anomaly_labels = np.ones(n_anomaly)
     
     # Combine
@@ -70,12 +73,14 @@ def train_model(
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     
-    # Train Isolation Forest
+    # Train Isolation Forest with tuned parameters
     logger.info("Training Isolation Forest...")
     model = IsolationForest(
         contamination=contamination,
         random_state=42,
-        n_estimators=100
+        n_estimators=100,
+        max_samples='auto',
+        max_features=1.0
     )
     model.fit(X_scaled)
     
