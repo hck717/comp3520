@@ -77,17 +77,19 @@ def generate_synthetic_data(n_samples=200, seed=42):
     """
     np.random.seed(seed)
     
-    # Normal transactions (label=0) - generate 4D, will pad to 16D
+    # Normal transactions (label=0) - tightly clustered
     n_normal = int(n_samples * 0.7)
-    normal_features_4d = np.random.rand(n_normal, 4) * 0.5 + 0.25  # Clustered
+    normal_features_4d = np.random.rand(n_normal, 4) * 0.3 + 0.35  # Centered around 0.5
+    normal_features_4d[:, 2] = np.clip(normal_features_4d[:, 2] * 0.3, 0, 0.4)  # Low port risk
+    normal_features_4d[:, 3] = np.clip(normal_features_4d[:, 3] * 0.1 + 0.9, 0.85, 1.0)  # High completeness
     normal_labels = np.zeros(n_normal)
     
-    # Anomalous transactions (label=1)
+    # Anomalous transactions (label=1) - clearly separated
     n_anomaly = n_samples - n_normal
-    anomaly_features_4d = np.random.rand(n_anomaly, 4)
-    anomaly_features_4d[:, 0] *= 0.3  # Low amount norm
-    anomaly_features_4d[:, 2] += 0.5  # High port risk
-    anomaly_features_4d = np.clip(anomaly_features_4d, 0, 1)
+    anomaly_features_4d = np.random.rand(n_anomaly, 4) * 0.4 + 0.1
+    anomaly_features_4d[:, 0] = np.clip(anomaly_features_4d[:, 0] * 0.2, 0, 0.25)  # Very low amount norm
+    anomaly_features_4d[:, 2] = np.clip(anomaly_features_4d[:, 2] + 0.6, 0.6, 1.0)  # High port risk
+    anomaly_features_4d[:, 3] = np.clip(anomaly_features_4d[:, 3] * 0.3, 0, 0.4)  # Low completeness
     anomaly_labels = np.ones(n_anomaly)
     
     # Combine 4D features
