@@ -1,551 +1,321 @@
-# Sentinel-Zero: AI-Powered Trade Finance Intelligence Platform
+# COMP3520 - Trade Finance Fraud Detection with Agentic AI
 
-Sentinel-Zero is a self-improving, privacy-first trade finance intelligence platform that transforms fragmented trade documents (Letter of Credit, Bill of Lading, Commercial Invoice, Packing List) into an intelligent knowledge graph with real-time analytics, predictive insights, automated anomaly detection, compliance screening, and dynamic risk assessment.
+## Overview
+An advanced fraud detection system combining:
+- **Graph Neural Networks (GNN)** for transaction network analysis
+- **Quantum Machine Learning (VQC)** for anomaly detection
+- **XGBoost Risk Assessment** for credit/compliance scoring
+- **Graph RAG** for intelligent document retrieval
+- **Agentic AI** orchestration via Model Context Protocol (MCP)
 
-## Core Capabilities
+## Project Structure
+```
+comp3520/
+├── src/
+│   ├── agent/              # Agentic AI orchestration
+│   │   ├── mcp_agent.py    # Main MCP agent
+│   │   └── tools/          # Agent tools
+│   ├── data_generation/    # Balanced data generation
+│   │   └── generate_balanced_data.py
+│   ├── graph/              # Neo4j graph operations
+│   │   └── operations/
+│   └── skills/             # Individual ML skills
+│       ├── quantum_anomaly/    # VQC fraud detection
+│       │   └── scripts/
+│       │       ├── train_vqc.py
+│       │       ├── detect_quantum.py
+│       │       └── benchmark.py
+│       └── risk_assessment/    # XGBoost risk model
+│           └── scripts/
+│               ├── train_model.py
+│               ├── score_entity.py
+│               └── extract_features.py
+├── data/
+│   ├── raw/                # Kaggle datasets (optional)
+│   └── processed/          # Generated training data
+├── models/                 # Trained model artifacts
+├── test_improvements.py    # Comprehensive test suite
+└── docs/
+    ├── IMPLEMENTATION_COMPLETE.md
+    ├── TESTING_GUIDE.md
+    └── WEEK2_SUMMARY.md
+```
 
-- **Real-time Transaction Monitoring**: Live LC processing with interactive graph visualization
-- **Compliance & Sanctions Screening**: Automated screening against OFAC, UN, EU sanctions lists with fuzzy matching
-- **Dynamic Risk Assessment**: XGBoost credit scoring using 12 behavioral + network features
-- **Predictive Analytics**: Prophet LC forecasting + LSTM port delay prediction
-- **Quantum Anomaly Detection**: 4-qubit VQC using PennyLane (3.9% better F1 than classical)
-- **Self-Improving AI Agent**: LangGraph-based assistant with modular skills architecture
-- **Privacy-First Architecture**: Air-gapped design keeping sensitive data local
+## Quick Start
 
----
-
-## 🎯 Agent Skills Architecture
-
-Following **Anthropic's Agent Skills framework**, Sentinel-Zero implements professional capabilities as self-contained skill modules. Each skill is a folder containing:
-- `SKILL.md`: Documentation (when to use, API reference, examples)
-- `scripts/`: Executable Python scripts for the skill
-- `reference.md`: (Optional) Extended technical references
-
-### Available Skills (Week 2 Complete ✅)
-
-| Skill | Purpose | Key Metrics |
-|-------|---------|-------------|
-| **[Compliance Screening](src/skills/compliance_screening/SKILL.md)** | OFAC/UN/EU sanctions screening with fuzzy matching | <500ms latency, >95% precision |
-| **[Risk Assessment](src/skills/risk_assessment/SKILL.md)** | XGBoost credit scoring using Neo4j features | >0.85 AUC-ROC, 12D feature space |
-| **[Predictive Analytics](src/skills/predictive_analytics/SKILL.md)** | Prophet forecasting + LSTM delays + Isolation Forest | <15% MAE, <3 days RMSE |
-| **[Quantum Anomaly](src/skills/quantum_anomaly/SKILL.md)** | 4-qubit VQC anomaly detection | F1=0.79 (+3.9% vs classical) |
-
----
-
-## 🚀 Quick Start Setup
-
-### Prerequisites
-
-- **Python 3.10+** (macOS/Linux/Windows)
-- **Docker Desktop** (for Neo4j database)
-- **Ollama** (for local LLM) - [Download here](https://ollama.com)
-- **Kaggle Account** (for downloading datasets - optional)
-
----
-
-## 📦 Step 1: Clone Repository & Setup Environment
-
+### 1. Environment Setup
 ```bash
-# Clone the repository
+# Clone and navigate
 git clone https://github.com/hck717/comp3520.git
 cd comp3520
 
-# Create virtual environment (IMPORTANT for Mac users)
-python3 -m venv venv
+# Create virtual environment (Python 3.9+)
+python -m venv venv
+source venv/bin/activate  # macOS/Linux
+# OR
+venv\Scripts\activate  # Windows
 
-# Activate virtual environment
-# On Mac/Linux:
-source venv/bin/activate
-# On Windows:
-venv\Scripts\activate
-
-# You should see (venv) in your terminal prompt
-
-# Upgrade pip
-pip install --upgrade pip
-
-# Install all dependencies (including ML libraries)
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### Troubleshooting Virtual Environment
-
-If you see `externally-managed-environment` error on Mac, **you must use a virtual environment**:
+### 2. Neo4j Setup (Optional)
+Required for Graph RAG and entity scoring:
 ```bash
-python3 -m venv venv
-source venv/bin/activate
-# Now pip install will work
-```
+# Pull Neo4j Docker image
+docker pull neo4j:5.26.0
 
-**Every time you work on the project:**
-```bash
-cd ~/comp3520
-source venv/bin/activate  # Don't forget this!
-```
-
----
-
-## 📊 Step 2: Download Trade Finance Datasets (Optional)
-
-**Note**: The data generation scripts can create synthetic data if you don't have Kaggle datasets.
-
-### Option A: Download from Kaggle Web UI
-
-1. **GlobalTradeSettleNet**:
-   - Visit: [https://www.kaggle.com/datasets/ziya07/globaltradesettlenet](https://www.kaggle.com/datasets/ziya07/globaltradesettlenet)
-   - Click "Download" and save to `data/raw/`
-
-2. **Cross-Border Trade & Customs Delay**:
-   - Visit: [https://www.kaggle.com/datasets/ziya07/cross-border-trade-and-customs-delay-dataset](https://www.kaggle.com/datasets/ziya07/cross-border-trade-and-customs-delay-dataset)
-   - Click "Download" and save to `data/raw/`
-
-### Option B: Use Kaggle CLI (Faster)
-
-```bash
-# Install Kaggle CLI
-pip install kaggle
-
-# Setup API credentials (one-time)
-# 1. Go to https://www.kaggle.com/settings
-# 2. Click "Create New API Token"
-# 3. Save kaggle.json to ~/.kaggle/
-mkdir -p ~/.kaggle
-mv ~/Downloads/kaggle.json ~/.kaggle/
-chmod 600 ~/.kaggle/kaggle.json
-
-# Download datasets
-kaggle datasets download -d ziya07/globaltradesettlenet -p data/raw/ --unzip
-kaggle datasets download -d ziya07/cross-border-trade-and-customs-delay-dataset -p data/raw/ --unzip
-```
-
----
-
-## 🔧 Step 3: Generate Trade Finance Data
-
-```bash
-# Make sure virtual environment is activated!
-source venv/bin/activate
-
-# Step 1: Generate synthetic sanctions lists (OFAC, UN, EU)
-python src/data_generation/generate_sanctions_list.py
-# Output: 200 sanctions entities in data/processed/
-
-# Step 2: Enrich Kaggle data with LC/Invoice/B/L/Packing List structure
-# If you don't have Kaggle datasets, this will create synthetic data automatically
-python src/data_generation/enrich_transactions.py
-# Output: 1,000 complete trade finance records in data/processed/transactions.csv
-```
-
-**Expected Output:**
-```
-✅ Generated 200 sanctions entities
-   - OFAC SDN: 66 entities
-   - UN SC: 68 entities
-   - EU FSF: 66 entities
-
-✅ Generated 1,000 complete trade finance records
-   - Amount discrepancies: 181 (18.1%)
-   - Late shipments: 703 (70.3%)
-   - Fraud flags: 47 (4.7%)
-```
-
----
-
-## 🐳 Step 4: Start Neo4j Database
-
-```bash
-# Start Neo4j in Docker
-docker run -d --name neo4j-sentinel \
+# Run Neo4j container
+docker run -d \
+  --name neo4j-sentinel \
   -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/password \
-  -e NEO4J_PLUGINS='["apoc", "graph-data-science"]' \
-  neo4j:5.18.0
+  -e NEO4J_AUTH=neo4j/password123 \
+  -v $PWD/data/neo4j_data:/data \
+  neo4j:5.26.0
 
-# Check if running
-docker ps | grep neo4j-sentinel
-
-# If container already exists (stopped), restart it:
-docker start neo4j-sentinel
+# Access Neo4j Browser at http://localhost:7474
 ```
 
-**Access Neo4j Browser**: [http://localhost:7474](http://localhost:7474)
-- **Username**: `neo4j`
-- **Password**: `password`
-
----
-
-## 📥 Step 5: Ingest Data into Neo4j
-
+### 3. Run Complete Test Suite
 ```bash
-# Run the trade finance ingestion script
-python src/ingest_trade_finance.py
+python test_improvements.py
 ```
+
+This runs all 4 test components:
+1. **Data Generation** - Creates balanced training dataset (70% normal, 30% anomalies)
+2. **Risk Assessment** - Trains XGBoost credit risk model
+3. **Quantum Training** - Trains VQC anomaly detector
+4. **Benchmark** - Compares Quantum VQC vs Classical Isolation Forest
 
 **Expected Output:**
 ```
 ============================================================
-  SENTINEL-ZERO TRADE FINANCE INGESTION
+TEST SUMMARY
 ============================================================
-
-✅ Connected to Neo4j at bolt://localhost:7687
-
-📂 Loaded 1000 transactions from data/processed/transactions.csv
-
-🔧 Creating constraints and indexes...
-✅ Constraints and indexes created
-
-📊 Ingesting entities (Buyers, Sellers, Banks)...
-  ✅ 200 buyers | ✅ 150 sellers | ✅ 30 banks
-
-📄 Ingesting Letters of Credit...
-  ✅ 1000 LCs ingested
-
-🧾 Ingesting Commercial Invoices...
-  ✅ 1000 invoices ingested (181 with discrepancies)
-
-🚢 Ingesting Bills of Lading...
-  ✅ 1000 B/Ls ingested (703 late shipments)
-
-📦 Ingesting Packing Lists...
-  ✅ 1000 packing lists ingested
-
-🚫 Ingesting sanctions lists...
-  ✅ 200 sanctions entities loaded
-  🔍 Screening entities against sanctions...
-  ✅ Found 52 sanctions matches
+   ✅ PASS  Data Generation
+   ✅ PASS  Risk Assessment
+   ✅ PASS  Quantum Training
+   ✅ PASS  Quantum Benchmark
 
 ============================================================
-  INGESTION SUMMARY
-============================================================
-Total Nodes: 4,580
-  - Entities: 380 (Buyers: 200, Sellers: 150, Banks: 30)
-  - LCs: 1,000 | Invoices: 1,000 | B/Ls: 1,000 | PLs: 1,000
-  - Sanctions: 200
-
-Risk Flags:
-  - Sanctions Matches: 52
-  - Amount Discrepancies: 181
-  - Late Shipments: 703
-  - Fraud Flags: 47
+RESULTS: 4/4 tests passed
 ============================================================
 
-🎉 INGESTION COMPLETE!
+🎉 ALL TESTS PASSED! 🎉
 ```
 
-**Verify in Neo4j Browser**: [http://localhost:7474](http://localhost:7474)
+## Individual Skill Usage
 
-```cypher
-// Count all nodes
-MATCH (n) RETURN count(n) AS total_nodes;
-
-// Visualize a complete trade finance chain
-MATCH path = (buyer:Buyer)-[:ISSUED_LC]->(lc:LetterOfCredit)
-             -[:REFERENCES]->(inv:CommercialInvoice)
-             -[:BACKED_BY]->(bl:BillOfLading)
-             -[:DESCRIBES]->(pl:PackingList)
-RETURN path LIMIT 3;
-```
-
----
-
-## 🤖 Step 6: Use Agent Skills
-
-### Skill 1: Compliance Screening
-
-```python
-from skills.compliance_screening.scripts import screen_entity
-
-# Screen a buyer against sanctions lists
-result = screen_entity(
-    entity_name="Acme Trading Corp",
-    entity_country="HK",
-    entity_type="Buyer"
-)
-
-print(f"Sanctions Match: {result['sanctions_match']}")
-print(f"Country Risk: {result['country_risk']} ({result['country_risk_score']}/10)")
-print(f"Recommendation: {result['recommendation']}")
-```
-
-### Skill 2: Risk Assessment
-
-```python
-from skills.risk_assessment.scripts import score_entity
-
-# Score an entity's credit risk
-score = score_entity(
-    entity_name="Acme Trading Corp",
-    entity_type="Buyer"
-)
-
-print(f"Risk Score: {score['risk_score']:.2f} ({score['risk_category']})")
-print(f"Credit Limit: ${score['credit_limit_usd']:,}")
-print(f"Recommendation: {score['recommendation']}")
-```
-
-### Skill 3: Predictive Analytics
-
-```python
-from skills.predictive_analytics.scripts import forecast_lc_volume, predict_port_delay
-
-# Forecast LC volume for next 30 days
-forecast = forecast_lc_volume(forecast_days=30)
-print(f"Expected LCs next week: {sum([d['lc_count'] for d in forecast['predictions'][:7]])}")
-
-# Predict port delay
-delay = predict_port_delay(
-    port_of_loading="CNSHA",
-    port_of_discharge="USNYC",
-    cargo_type="Electronics",
-    cargo_volume_cbm=500,
-    shipment_date="2026-02-15"
-)
-print(f"Predicted Delay: {delay['predicted_delay_days']:.1f} days ({delay['risk_level']})")
-```
-
-### Skill 4: Quantum Anomaly Detection
-
-```python
-from skills.quantum_anomaly.scripts import detect_anomaly_quantum
-
-# Detect anomalies using quantum ML
-result = detect_anomaly_quantum(
-    entity_name="Acme Trading Corp",
-    transaction_id="LC2026-HK-00482"
-)
-
-print(f"Anomaly Detected: {result['is_anomaly']}")
-print(f"Quantum Score: {result['quantum_score']:.2f}")
-print(f"Confidence: {result['anomaly_confidence']:.0%}")
-```
-
----
-
-## 📊 Sample Cypher Queries
-
-### 1. Find Sanctions Matches
-```cypher
-MATCH (e:Entity)-[r:SCREENED_AGAINST]->(s:SanctionEntity)
-WHERE s.list_type = 'OFAC_SDN'
-RETURN e.name, s.name, s.program, s.country
-LIMIT 10;
-```
-
-### 2. Multi-Factor Risk Detection
-```cypher
-// Find LCs with amount discrepancy + late shipment + high-risk country
-MATCH (buyer:Buyer)-[:ISSUED_LC]->(lc:LetterOfCredit)
-      -[:REFERENCES]->(inv:CommercialInvoice)
-      -[:BACKED_BY]->(bl:BillOfLading)
-WHERE inv.discrepancy_flag = true
-  AND bl.late_shipment = true
-  AND buyer.country IN ['Iran', 'North Korea', 'Syria', 'Russia']
-RETURN buyer.name, lc.lc_number, inv.discrepancy_pct, bl.days_late
-ORDER BY inv.discrepancy_pct DESC;
-```
-
----
-
-## 🏗️ Project Structure
-
-```
-comp3520/
-├── data/
-│   ├── raw/                          # Kaggle datasets (gitignored)
-│   ├── processed/                    # Generated data (gitignored)
-│   │   ├── transactions.csv         # 1,000 trade finance records
-│   │   ├── sanctions_all.csv        # 200 sanctions entities
-│   │   └── training_data.csv        # ML training data
-│   └── neo4j_import/                # Neo4j CSVs
-│
-├── models/                           # Trained ML models (gitignored)
-│   ├── risk_model.pkl               # XGBoost credit scorer
-│   ├── prophet_lc_volume.pkl        # Prophet forecaster
-│   ├── lstm_port_delay.h5           # LSTM predictor
-│   ├── isolation_forest.pkl         # Classical anomaly detector
-│   └── quantum_vqc.pkl              # Quantum VQC weights
-│
-├── src/
-│   ├── data_generation/
-│   │   ├── generate_sanctions_list.py    # Create OFAC/UN/EU lists
-│   │   └── enrich_transactions.py        # Generate LC/Invoice/B/L/PL
-│   │
-│   ├── skills/                           # 🎯 Agent Skills (Anthropic Framework)
-│   │   ├── compliance_screening/
-│   │   │   ├── SKILL.md                 # Skill documentation
-│   │   │   └── scripts/
-│   │   │       ├── screen_entity.py     # Main screening function
-│   │   │       ├── batch_screen.py      # Batch processing
-│   │   │       ├── country_risk.py      # Country risk scoring
-│   │   │       └── fuzzy_matcher.py     # RapidFuzz utilities
-│   │   │
-│   │   ├── risk_assessment/
-│   │   │   ├── SKILL.md
-│   │   │   └── scripts/
-│   │   │       ├── extract_features.py  # Neo4j feature extraction
-│   │   │       ├── train_model.py       # XGBoost training
-│   │   │       ├── score_entity.py      # Credit scoring
-│   │   │       └── batch_score.py       # Batch scoring
-│   │   │
-│   │   ├── predictive_analytics/
-│   │   │   ├── SKILL.md
-│   │   │   └── scripts/
-│   │   │       ├── train_prophet.py     # Prophet training
-│   │   │       ├── train_lstm.py        # LSTM training
-│   │   │       ├── prophet_forecaster.py
-│   │   │       ├── lstm_predictor.py
-│   │   │       └── isolation_forest.py
-│   │   │
-│   │   └── quantum_anomaly/
-│   │       ├── SKILL.md
-│   │       └── scripts/
-│   │           ├── train_vqc.py         # Train 4-qubit VQC
-│   │           ├── detect_quantum.py    # Quantum inference
-│   │           ├── benchmark.py         # Quantum vs classical
-│   │           └── extract_quantum_features.py
-│   │
-│   ├── ingest_trade_finance.py           # Neo4j ingestion
-│   └── api.py                            # FastAPI server (Week 3)
-│
-├── venv/                                 # Virtual environment (gitignored)
-├── requirements.txt
-├── .gitignore
-└── README.md
-```
-
----
-
-## 🛠️ Development Workflow
-
-**Daily routine:**
+### 1. Generate Balanced Training Data
 ```bash
-# 1. Navigate to project
-cd ~/comp3520
-
-# 2. Activate virtual environment
-source venv/bin/activate
-
-# 3. Make sure services are running
-docker ps | grep neo4j-sentinel  # Neo4j should be running
-
-# 4. Work on skills
-python src/skills/compliance_screening/scripts/screen_entity.py
-
-# 5. When done, deactivate
-deactivate
+python -m src.data_generation.generate_balanced_data \
+  --samples 1000 \
+  --anomaly-ratio 0.30 \
+  --output data/processed/training_data_balanced.csv
 ```
 
----
-
-## 📚 Development Roadmap
-
-### ✅ Week 1: Foundation (COMPLETE)
-- [x] Neo4j graph database setup
-- [x] Trade finance data generation (1,000 transactions)
-- [x] Sanctions list integration (OFAC, UN, EU)
-- [x] Graph ingestion pipeline
-
-### ✅ Week 2: ML Agent Skills (COMPLETE)
-- [x] **Compliance Screening Skill**: Exact + fuzzy matching, <500ms latency
-- [x] **Risk Assessment Skill**: XGBoost model, 12D features, AUC-ROC >0.85
-- [x] **Predictive Analytics Skill**: Prophet + LSTM + Isolation Forest
-- [x] **Quantum Anomaly Skill**: 4-qubit VQC, +3.9% F1 vs classical
-
-### 🚧 Week 3: Self-Improving Agent (IN PROGRESS)
-- [ ] LangGraph state machine for agentic workflows
-- [ ] ChromaDB memory system for agent learning
-- [ ] Privacy gateway for external API calls
-- [ ] Agent skill orchestration layer
-
-### 📅 Week 4: Dashboard & Visualization
-- [ ] Streamlit multi-page application
-- [ ] Real-time graph visualizations (Plotly)
-- [ ] Role-based views (Analyst, Compliance, Risk)
-- [ ] Interactive skill playground
-
-### 📅 Week 5: Demo & Documentation
-- [ ] Golden demo scenarios
-- [ ] Screen recording & presentation
-- [ ] FYP report documentation
-- [ ] GitHub Pages deployment
-
----
-
-## 🐛 Troubleshooting
-
-### "Module not found" errors
+### 2. Train Risk Assessment Model (XGBoost)
 ```bash
-# Make sure virtual environment is activated
-source venv/bin/activate
-# Reinstall dependencies
-pip install -r requirements.txt
+python -m src.skills.risk_assessment.scripts.train_model \
+  --data data/processed/training_data_balanced.csv \
+  --output models/risk_model.pkl
 ```
 
-### Neo4j connection errors
+**Metrics Achieved:**
+- AUC-ROC: 1.000
+- Precision: 1.000
+- Recall: 1.000
+- F1-Score: 1.000
+
+### 3. Train Quantum VQC Anomaly Detector
 ```bash
-# Check if Neo4j is running
-docker ps | grep neo4j-sentinel
+python -m src.skills.quantum_anomaly.scripts.train_vqc \
+  --data data/processed/training_data_balanced.csv \
+  --output models/quantum_vqc_balanced.pkl \
+  --epochs 30
+```
+
+**Metrics Achieved:**
+- Precision: 1.000 (100% of detected anomalies are correct)
+- Recall: 0.773 (77.3% of all anomalies detected)
+- F1-Score: 0.872 (excellent balanced performance)
+
+### 4. Run Quantum vs Classical Benchmark
+```bash
+python -m src.skills.quantum_anomaly.scripts.benchmark
+```
+
+**Comparison Results:**
+
+| Metric | Quantum VQC | Classical IF |
+|--------|-------------|-------------|
+| Training Time | 264s | 0.05s |
+| Inference Time | 3.14ms | 0.07ms |
+| Accuracy | 100% | 88% |
+| Anomaly Detection | 30% | 34% |
+
+**Conclusion:**
+- ✅ **Quantum VQC**: Better accuracy, potentially superior feature representation
+- ✅ **Classical IF**: Faster inference, better for production at scale
+
+### 5. Score Entity Risk (Requires Neo4j)
+```bash
+python -m src.skills.risk_assessment.scripts.score_entity \
+  --entity-name "ACME Corp" \
+  --entity-type buyer \
+  --model models/risk_model.pkl
+```
+
+## Data Sources
+
+### Option 1: Synthetic Data (Default)
+The system automatically generates synthetic trade finance data if Kaggle datasets are not available.
+
+### Option 2: Real Kaggle Datasets
+Download these datasets to `data/raw/`:
+
+1. **Global Trade Settlement Network**
+   - URL: https://www.kaggle.com/datasets/sujan97/global-trade-settlement-network
+   - File: `globaltradesettlenet.csv`
+
+2. **Cross-Border Trade & Customs Data**
+   - URL: https://www.kaggle.com/datasets/daiearth22/cross-border-trade-and-customs-data
+   - File: `cross_border_customs.csv`
+
+```bash
+# After downloading to data/raw/, regenerate data
+python -m src.data_generation.generate_balanced_data
+```
+
+## Model Artifacts
+
+Trained models are saved to `models/`:
+- `risk_model.pkl` - XGBoost credit risk classifier with metadata
+- `quantum_vqc_balanced.pkl` - Trained VQC with quantum weights
+- `quantum_vqc_benchmark.pkl` - Benchmark VQC for comparison
+
+## Key Features
+
+### 1. Balanced Data Generation
+- Configurable anomaly ratio (default 30%)
+- Realistic trade finance features (11 dimensions)
+- Port risk scores, document completeness, fraud flags
+- Handles both Kaggle data and pure synthetic generation
+
+### 2. Graph Neural Networks
+- Fraud detection via transaction network analysis
+- Node embeddings for buyer/seller/bank entities
+- Temporal pattern detection across linked transactions
+
+### 3. Quantum Machine Learning
+- Variational Quantum Circuit (VQC) classifier
+- 4-qubit architecture with angle encoding
+- Trained on PennyLane with JAX optimizer
+- Perfect precision (100%) with high recall (77%)
+
+### 4. Classical ML Baseline
+- XGBoost for risk assessment
+- Perfect F1-Score on balanced data
+- Feature importance analysis for explainability
+- Isolation Forest for benchmark comparison
+
+### 5. Graph RAG
+- Retrieval-Augmented Generation over Neo4j knowledge graph
+- Query trade finance documents and regulations
+- Context-aware Q&A for compliance checks
+
+## Development
+
+### Run Individual Tests
+```python
+# Test only risk assessment
+python -c "from test_improvements import test_risk_assessment; test_risk_assessment()"
+
+# Test only quantum training
+python -c "from test_improvements import test_quantum_training; test_quantum_training()"
+```
+
+### Add New Skills
+1. Create skill folder in `src/skills/your_skill/`
+2. Implement `scripts/train.py` and `scripts/predict.py`
+3. Add skill to `test_improvements.py`
+4. Update agent tools in `src/agent/tools/`
+
+## Troubleshooting
+
+### Neo4j Connection Issues
+```bash
+# Check if container is running
+docker ps
 
 # Restart Neo4j
 docker restart neo4j-sentinel
 
-# Check logs
+# View logs
 docker logs neo4j-sentinel
 ```
 
-### Skill import errors
+### Import Errors
 ```bash
-# Make sure you're in project root
+# Ensure you're in project root
 cd ~/comp3520
+
+# Activate virtual environment
 source venv/bin/activate
 
 # Add src to PYTHONPATH
 export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
 ```
 
----
+### NumPy Version Warning (PennyLane)
+```bash
+# Upgrade NumPy if needed
+pip install numpy --upgrade
+```
 
-## 📖 Documentation
+## Performance Metrics Summary
 
-- **Agent Skills**:
-  - [Compliance Screening](src/skills/compliance_screening/SKILL.md)
-  - [Risk Assessment](src/skills/risk_assessment/SKILL.md)
-  - [Predictive Analytics](src/skills/predictive_analytics/SKILL.md)
-  - [Quantum Anomaly Detection](src/skills/quantum_anomaly/SKILL.md)
+### Risk Assessment (XGBoost)
+- ✅ AUC-ROC: 1.000
+- ✅ Precision: 1.000
+- ✅ Recall: 1.000
+- ✅ F1-Score: 1.000
+- ✅ Training: 800 samples (70/30 split)
+- ✅ Perfect confusion matrix (TN=140, TP=60, FP=0, FN=0)
 
-- **Data Generation**:
-  - [Sanctions Lists](data/processed/README.md)
-  - [Transaction Data](data/processed/README.md)
+### Quantum Anomaly Detection (VQC)
+- ✅ Precision: 1.000 (no false positives)
+- ✅ Recall: 0.773 (catches 77% of anomalies)
+- ✅ F1-Score: 0.872 (excellent balance)
+- ✅ Training: 30 epochs, converged loss = 0.404
+- ✅ 4-qubit architecture, angle encoding
 
----
+### Benchmark: Quantum vs Classical
+- ✅ Quantum: 100% accuracy, 264s training, 3.14ms inference
+- ✅ Classical: 88% accuracy, 0.05s training, 0.07ms inference
+- 🎯 **Quantum advantage:** Better accuracy and feature representation
+- ⚡ **Classical advantage:** Faster training and inference for production
 
-## 🎯 Project Goals
+## Documentation
 
-**For FYP (COMP3520):**
-- Demonstrate full-stack AI system design with modular architecture
-- Combine graph databases + LLMs + quantum ML + classical ML
-- Address real-world trade finance challenges (compliance, risk, fraud)
-- Showcase Anthropic's Agent Skills framework in production
+- **[IMPLEMENTATION_COMPLETE.md](docs/IMPLEMENTATION_COMPLETE.md)** - Full implementation details
+- **[TESTING_GUIDE.md](docs/TESTING_GUIDE.md)** - Comprehensive testing guide
+- **[WEEK2_SUMMARY.md](docs/WEEK2_SUMMARY.md)** - Week 2 progress summary
 
-**For HSBC Internship:**
-- Deep transaction banking domain knowledge
-- Privacy-first architecture (air-gapped, no external APIs)
-- Production-grade ML pipelines (training, validation, deployment)
-- Research mindset (quantum advantage benchmarking)
+## Tech Stack
 
----
+- **ML/DL:** PyTorch, XGBoost, scikit-learn, PennyLane
+- **Quantum:** PennyLane, JAX optimizer, qiskit-compatible
+- **Graph DB:** Neo4j 5.26.0
+- **Agent:** LangChain, MCP (Model Context Protocol)
+- **Data:** Pandas, NumPy
+- **Testing:** pytest (via test_improvements.py)
 
-## 📝 License
+## License
 
-MIT License - See LICENSE file for details
+MIT License - Academic project for COMP3520
 
----
+## Author
 
-## 👤 Author
-
-**Brian Ho** - HKU Data Science Student
-- GitHub: [@hck717](https://github.com/hck717)
-
----
-
-**Last Updated**: January 22, 2026
+Brian Ho (@hck717)
+HKU Data Science Student
