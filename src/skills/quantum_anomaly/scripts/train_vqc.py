@@ -2,6 +2,7 @@
 
 import logging
 import numpy as np
+import pandas as pd
 import pennylane as qml
 from pennylane import numpy as pnp
 import joblib
@@ -67,9 +68,45 @@ def cost_function(weights, features, labels):
     return loss
 
 
+def load_balanced_data(csv_path: str = "data/processed/training_data_balanced.csv"):
+    """
+    Load balanced training data from CSV.
+    
+    Returns:
+        features (n_samples, 16), labels (n_samples,)
+    """
+    if not Path(csv_path).exists():
+        logger.warning(f"CSV not found: {csv_path}. Using synthetic data.")
+        return None, None
+    
+    logger.info(f"Loading data from {csv_path}...")
+    df = pd.read_csv(csv_path)
+    
+    # Select 4 key features for quantum circuit
+    feature_cols = ['amount_deviation', 'time_deviation', 'port_risk', 'doc_completeness']
+    features_4d = df[feature_cols].values
+    
+    # Normalize to [0, 1]
+    features_4d[:, 0] = np.clip((features_4d[:, 0] + 3) / 6, 0, 1)  # amount_deviation
+    features_4d[:, 1] = np.clip(features_4d[:, 1], 0, 1)  # time_deviation
+    features_4d[:, 2] = np.clip(features_4d[:, 2], 0, 1)  # port_risk
+    features_4d[:, 3] = np.clip(features_4d[:, 3], 0, 1)  # doc_completeness
+    
+    # Pad to 16D for AmplitudeEmbedding (2^4 = 16)
+    features = np.pad(features_4d, ((0, 0), (0, 12)), mode='constant', constant_values=0)
+    
+    labels = df['is_anomaly'].values
+    
+    logger.info(f"Loaded {len(features)} samples:")
+    logger.info(f"  Normal: {(labels==0).sum()}")
+    logger.info(f"  Anomalies: {(labels==1).sum()}")
+    
+    return features, labels
+
+
 def generate_synthetic_data(n_samples=200, seed=42):
     """
-    Generate synthetic 4D data for quantum training.
+    Generate synthetic 4D data for quantum training (fallback).
     Features are padded to 16D for AmplitudeEmbedding.
     
     Returns:
@@ -108,22 +145,30 @@ def train_quantum_model(
     n_samples: int = 200,
     n_epochs: int = 50,
     learning_rate: float = 0.1,
-    output_path: str = "models/quantum_vqc.pkl"
+    output_path: str = "models/quantum_vqc.pkl",
+    use_csv: bool = True
 ):
     """
     Train VQC for anomaly detection.
     
     Args:
-        n_samples: Number of training samples
+        n_samples: Number of training samples (only for synthetic data)
         n_epochs: Training epochs
         learning_rate: Optimizer learning rate
         output_path: Path to save trained weights
+        use_csv: Try to load balanced CSV data first
         
     Returns:
         Dictionary with metrics
     """
-    logger.info("Generating synthetic training data...")
-    features, labels = generate_synthetic_data(n_samples)
+    if use_csv:
+        features, labels = load_balanced_data()
+        if features is None:
+            logger.info("Generating synthetic training data...")
+            features, labels = generate_synthetic_data(n_samples)
+    else:
+        logger.info("Generating synthetic training data...")
+        features, labels = generate_synthetic_data(n_samples)
     
     # Convert to PennyLane arrays
     features = pnp.array(features, requires_grad=False)
@@ -181,5 +226,5 @@ def train_quantum_model(
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    metrics = train_quantum_model(n_samples=200, n_epochs=50)
+    metrics = train_quantum_model(n_samples=200, n_epochs=50, use_csv=True)
     print("\nQuantum training complete!")
