@@ -17,8 +17,8 @@ dev = qml.device('default.qubit', wires=4)
 @qml.qnode(dev)
 def quantum_circuit(features, weights):
     """VQC inference circuit."""
-    normalized_features = features / pnp.linalg.norm(features)
-    qml.AmplitudeEmbedding(normalized_features, wires=range(4), normalize=True)
+    # AmplitudeEmbedding requires 16 features for 4 qubits
+    qml.AmplitudeEmbedding(features, wires=range(4), normalize=True, pad_with=0.0)
     
     n_layers = 3
     for layer in range(n_layers):
@@ -61,12 +61,15 @@ def detect_anomaly_quantum(
     artifacts = joblib.load(model_path)
     weights = artifacts['weights']
     
-    # Normalize features
+    # Normalize features to 4D array
     normalized = normalize_features(features)
-    normalized = pnp.array(normalized, requires_grad=False)
+    
+    # Pad to 16D for AmplitudeEmbedding (2^4 = 16)
+    normalized_padded = np.pad(normalized, (0, 12), mode='constant', constant_values=0)
+    normalized_padded = pnp.array(normalized_padded, requires_grad=False)
     
     # Run quantum circuit
-    quantum_score = quantum_circuit(normalized, weights)
+    quantum_score = quantum_circuit(normalized_padded, weights)
     
     # Interpret score
     # Negative score -> anomaly
