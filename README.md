@@ -1,187 +1,424 @@
-# Layer A: Data Foundation for GraphRAG
+# Sentinel-Zero: AI-Powered Trade Finance Intelligence Platform
 
-This project sets up a realistic banking data foundation for an Anti-Money Laundering (AML) GraphRAG system. It combines structural transaction data (IBM AML Dataset) with synthetic KYC context (Faker) in a Neo4j Knowledge Graph.
+Sentinel-Zero is a self-improving, privacy-first trade finance intelligence platform that transforms fragmented trade documents (Letter of Credit, Bill of Lading, Commercial Invoice, Packing List) into an intelligent knowledge graph with real-time analytics, predictive insights, automated anomaly detection, compliance screening, and dynamic risk assessment.
 
-## 1. Prerequisites
-- **Python 3.10+**
-- **Docker Desktop** (for running Neo4j)
-- **Dataset**: Download `LI-Small_Trans.csv` from [Kaggle](https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml?select=LI-Small_Trans.csv) and place it in the `data/` folder.
-- **Ollama**: Required for the AI Agent API and Agentic Ingestion. Pull Llama 3.2: `ollama pull llama3.2`
+## Core Capabilities
 
-## 2. Setup & Installation
+- **Real-time Transaction Monitoring**: Live LC processing with interactive graph visualization
+- **Compliance & Sanctions Screening**: Automated screening against OFAC, UN, EU sanctions lists
+- **Dynamic Risk Assessment**: AI-driven credit scoring using transaction behavior and market intelligence
+- **Anomaly Detection**: Hybrid classical + quantum ML for detecting document discrepancies
+- **Self-Improving AI Agent**: LangGraph-based assistant that learns from analyst feedback
+- **Privacy-First Architecture**: Air-gapped design keeping sensitive data local
 
-### Step 1: Start Neo4j Database
-Run Neo4j in a Docker container. This exposes the database on port 7687 and the UI on port 7474.
+---
+
+## 🚀 Quick Start Setup
+
+### Prerequisites
+
+- **Python 3.10+** (macOS/Linux/Windows)
+- **Docker Desktop** (for Neo4j database)
+- **Ollama** (for local LLM) - [Download here](https://ollama.com)
+- **Kaggle Account** (for downloading datasets)
+
+---
+
+## 📦 Step 1: Clone Repository & Setup Environment
+
 ```bash
-docker run -d --name neo4j-mvp \
+# Clone the repository
+git clone https://github.com/hck717/comp3520.git
+cd comp3520
+
+# Create virtual environment (IMPORTANT for Mac users)
+python3 -m venv venv
+
+# Activate virtual environment
+# On Mac/Linux:
+source venv/bin/activate
+# On Windows:
+venv\Scripts\activate
+
+# You should see (venv) in your terminal prompt
+
+# Upgrade pip
+pip install --upgrade pip
+
+# Install all dependencies
+pip install -r requirements.txt
+```
+
+### Troubleshooting Virtual Environment
+
+If you see `externally-managed-environment` error on Mac, **you must use a virtual environment**:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+# Now pip install will work
+```
+
+**Every time you work on the project:**
+```bash
+cd ~/comp3520
+source venv/bin/activate  # Don't forget this!
+```
+
+---
+
+## 📊 Step 2: Download Trade Finance Datasets
+
+### Option A: Download from Kaggle Web UI
+
+1. **GlobalTradeSettleNet**:
+   - Visit: [https://www.kaggle.com/datasets/ziya07/globaltradesettlenet](https://www.kaggle.com/datasets/ziya07/globaltradesettlenet)
+   - Click "Download" and save to `data/raw/`
+
+2. **Cross-Border Trade & Customs Delay**:
+   - Visit: [https://www.kaggle.com/datasets/ziya07/cross-border-trade-and-customs-delay-dataset](https://www.kaggle.com/datasets/ziya07/cross-border-trade-and-customs-delay-dataset)
+   - Click "Download" and save to `data/raw/`
+
+### Option B: Use Kaggle CLI (Faster)
+
+```bash
+# Install Kaggle CLI
+pip install kaggle
+
+# Setup API credentials (one-time)
+# 1. Go to https://www.kaggle.com/settings
+# 2. Click "Create New API Token"
+# 3. Save kaggle.json to ~/.kaggle/
+mkdir -p ~/.kaggle
+mv ~/Downloads/kaggle.json ~/.kaggle/
+chmod 600 ~/.kaggle/kaggle.json
+
+# Download datasets
+kaggle datasets download -d ziya07/globaltradesettlenet -p data/raw/ --unzip
+kaggle datasets download -d ziya07/cross-border-trade-and-customs-delay-dataset -p data/raw/ --unzip
+```
+
+---
+
+## 🔧 Step 3: Generate Trade Finance Data
+
+```bash
+# Make sure virtual environment is activated!
+source venv/bin/activate
+
+# Step 1: Generate synthetic sanctions lists (OFAC, UN, EU)
+python src/data_generation/generate_sanctions_list.py
+# Output: 200 sanctions entities in data/processed/
+
+# Step 2: Enrich Kaggle data with LC/Invoice/B/L/Packing List structure
+python src/data_generation/enrich_transactions.py
+# Output: 1,000 complete trade finance records in data/processed/transactions.csv
+```
+
+**Expected Output:**
+```
+✅ Generated 200 sanctions entities
+   - OFAC SDN: 67 entities
+   - UN SC: 68 entities
+   - EU FSF: 65 entities
+
+✅ Generated 1,000 complete trade finance records
+   - Amount discrepancies: 103 (10.3%)
+   - Late shipments: 147 (14.7%)
+   - Fraud flags: 52 (5.2%)
+```
+
+---
+
+## 🐳 Step 4: Start Neo4j Database
+
+```bash
+# Start Neo4j in Docker
+docker run -d --name neo4j-sentinel \
   -p 7474:7474 -p 7687:7687 \
   -e NEO4J_AUTH=neo4j/password \
   -e NEO4J_PLUGINS='["apoc", "graph-data-science"]' \
   neo4j:5.18.0
-```
-*Note: If the container already exists (and is stopped), restart it with `docker start neo4j-mvp`.*
 
-### Step 2: Install Python Dependencies
-```bash
-pip install -r requirements.txt
-```
+# Check if running
+docker ps | grep neo4j-sentinel
 
-## 3. Data Ingestion (Choose Your Approach)
-
-You have **two options** for ingesting data into Neo4j:
-
-### Option A: Hardcoded Ingestion (Recommended for Production)
-This is the **fast, deterministic** approach with explicit schema control. Best for high-volume financial data.
-
-```bash
-python src/ingest_layer_a.py
+# If container already exists (stopped), restart it:
+docker start neo4j-sentinel
 ```
 
-**What it does:**
-- Loads 50k transactions from the IBM AML dataset
-- Creates `Account` nodes and `TRANSFERRED` relationships
-- Generates synthetic `Entity` (Company/Person) nodes using Faker
-- Links entities to accounts via `OWNS` relationships
+**Access Neo4j Browser**: [http://localhost:7474](http://localhost:7474)
+- **Username**: `neo4j`
+- **Password**: `password`
 
 ---
 
-### Option B: Agentic Ingestion (Experimental - Local LLM)
-This is the **autonomous** approach where a local LLM (Llama 3.2 via Ollama) analyzes your CSV and decides the schema for you.
+## 📥 Step 5: Ingest Data into Neo4j
 
-**Setup:**
-1. Install [Ollama](https://ollama.com).
-2. Pull the model (Llama 3.2 is recommended for speed/quality balance):
-   ```bash
-   ollama pull llama3.2
-   ```
-3. Start the Ollama server:
-   ```bash
-   ollama serve
-   ```
-
-**Run the agent:**
 ```bash
-# Optional: Set model if different from llama3.2
-export OLLAMA_MODEL="llama3.2"
-
-python src/ingest_agent.py
+# Run the ingestion script
+python src/ingest_realtime.py
 ```
 
-**What it does:**
-1. 📊 **Analyzes CSV**: The script reads the first 10 rows and sends a prompt to your local Ollama.
-2. 🤖 **Infers Schema**: Llama 3.2 proposes nodes (e.g., `Account`, `Bank`) and relationships (e.g., `SENT_MONEY`) in JSON format.
-3. 🔧 **Generates Cypher**: Automatically writes the `MERGE` and `CREATE` statements.
-4. 📥 **Executes Import**: Loads 5k rows as a proof-of-concept.
+**What this does:**
+- Creates graph schema (Buyer, Seller, Bank, LC, Invoice, B/L, Packing List nodes)
+- Ingests 1,000 trade finance transactions
+- Links documents to entities
+- Loads sanctions lists for compliance screening
+
+**Verify in Neo4j Browser:**
+```cypher
+// Count all nodes
+MATCH (n) RETURN count(n);
+
+// Visualize a trade finance chain
+MATCH path = (buyer:Entity)-[:ISSUED_LC]->(lc:LetterOfCredit)
+             -[:REFERENCES]->(inv:CommercialInvoice)
+             -[:BACKED_BY]->(bl:BillOfLading)
+RETURN path LIMIT 5;
+```
 
 ---
 
-## 4. Run the AI Agent API
+## 🤖 Step 6: Start Ollama & Pull LLM Model
 
-The project includes a **FastAPI** service that allows you to chat with your graph data using natural language. The agent converts your questions into Cypher queries and summarizes the results.
-
-### Step 1: Start the Server
-Make sure Neo4j is running and data is ingested.
 ```bash
+# Install Ollama from https://ollama.com
+# Then pull the model:
+ollama pull llama3.2
+
+# Start Ollama server (in a separate terminal)
+ollama serve
+
+# Test it's working
+curl http://localhost:11434/api/tags
+```
+
+---
+
+## 🚀 Step 7: Run the AI Agent API
+
+```bash
+# Make sure Neo4j and Ollama are running
+# Then start the FastAPI server:
 python src/api.py
 ```
-The API will start at `http://0.0.0.0:8000`.
 
-### Step 2: Chat with the Graph
-You can use `curl` or any HTTP client to send requests.
+**Access the API**: [http://localhost:8000](http://localhost:8000)
 
-**Example Request:**
+**Example Query:**
 ```bash
 curl -X POST "http://localhost:8000/chat" \
      -H "Content-Type: application/json" \
-     -d '{"query": "Find all accounts owned by companies in High Risk Jurisdictions that sent more than 10000 dollars"}'
+     -d '{"query": "Show me all LCs where invoice amount exceeds LC amount by more than 10%"}'
 ```
 
-**Example Response:**
+**Response:**
 ```json
 {
-  "answer": "I found 3 accounts matching your criteria. The companies are...",
-  "generated_cypher": "MATCH (e:Entity)-[:OWNS]->(a:Account)..."
+  "answer": "Found 12 LCs with significant amount discrepancies...",
+  "generated_cypher": "MATCH (lc:LetterOfCredit)-[:REFERENCES]->(inv:CommercialInvoice)...",
+  "risk_assessment": {...}
 }
 ```
 
 ---
 
-## 5. Verify & Explore the Graph
-Once ingestion is complete, open the **Neo4j Browser** at:
-👉 **[http://localhost:7474](http://localhost:7474)**
-*   **Username**: `neo4j`
-*   **Password**: `password`
+## 📊 Explore Your Graph
 
-### Useful Cypher Queries
-Run these queries in the Neo4j Browser to inspect your graph foundation.
+### Sample Cypher Queries
 
-**1. Basic Visualization (See the "Flesh" and "Skeleton")**
-*Visualize a Company owning an Account that sent money.*
+**1. Find Sanctions Matches**
 ```cypher
-MATCH (c:Entity)-[:OWNS]->(a:Account)-[t:TRANSFERRED]->(b:Account)
-WHERE c.type = 'Company'
-RETURN c, a, t, b LIMIT 25
+MATCH (e:Entity)-[:SCREENED_AGAINST]->(s:SanctionEntity)
+WHERE s.list_type = 'OFAC_SDN'
+RETURN e.name, s.name, s.program
+LIMIT 10;
 ```
 
-**2. Find "High Risk" Entities**
-*Show me accounts owned by people/companies in simulated High Risk Jurisdictions.*
+**2. Detect Amount Discrepancies**
 ```cypher
-MATCH (e:Entity)-[:OWNS]->(a:Account)
-WHERE e.jurisdiction CONTAINS 'High Risk'
-RETURN e, a LIMIT 20
+MATCH (lc:LetterOfCredit)-[:REFERENCES]->(inv:CommercialInvoice)
+WHERE abs(inv.amount - lc.amount) > lc.amount * 0.1
+RETURN lc.lc_number, lc.amount, inv.amount,
+       (inv.amount - lc.amount) / lc.amount * 100 AS deviation_pct
+ORDER BY deviation_pct DESC;
 ```
 
-**3. Trace Money Flow from a Specific Account**
-*Follow the money trail for 3 hops starting from a specific account.*
+**3. Find Late Shipments**
 ```cypher
-MATCH path = (start:Account)-[:TRANSFERRED*1..3]->(end:Account)
-WHERE start.id = '1'  // Replace with a real ID from your results
-RETURN path LIMIT 10
+MATCH (lc:LetterOfCredit)-[:COVERS]->(ship:Shipment)
+WHERE ship.actual_ship_date > lc.latest_ship_date
+RETURN lc.lc_number, lc.latest_ship_date, ship.actual_ship_date,
+       duration.between(lc.latest_ship_date, ship.actual_ship_date).days AS days_late
+ORDER BY days_late DESC;
 ```
 
-**4. Spot "Smurfing" Patterns (Fan-out)**
-*Find accounts that sent money to 5+ different recipients.*
+**4. Trace Document Chain**
 ```cypher
-MATCH (sender:Account)-[:TRANSFERRED]->(receiver:Account)
-WITH sender, count(DISTINCT receiver) as degree
-WHERE degree > 5
-RETURN sender.id, degree 
-ORDER BY degree DESC LIMIT 10
+MATCH path = (lc:LetterOfCredit)-[:REFERENCES]->(inv:CommercialInvoice)
+             -[:BACKED_BY]->(bl:BillOfLading)-[:DESCRIBES]->(pl:PackingList)
+RETURN path LIMIT 5;
 ```
 
-**5. Find Large Transactions by Foreign Companies**
-*Find transactions > 10,000 sent by companies not in 'United States'.*
+**5. High-Risk Country Exposure**
 ```cypher
-MATCH (e:Entity)-[:OWNS]->(sender:Account)-[t:TRANSFERRED]->(receiver:Account)
-WHERE e.type = 'Company' 
-  AND e.jurisdiction <> 'United States' 
-  AND t.amount > 10000
-RETURN e.name, e.jurisdiction, t.amount, receiver.id 
-ORDER BY t.amount DESC LIMIT 10
-```
-
-**6. Count Total Nodes & Edges**
-*Verify how big your graph is.*
-```cypher
-CALL apoc.meta.stats() YIELD labels, relTypes
-RETURN labels, relTypes
-```
-
-**7. Compare Hardcoded vs Agentic Results** (If you ran both)
-*See what schema the LLM chose vs your hardcoded version.*
-```cypher
-CALL db.schema.visualization()
+MATCH (e:Entity)-[:ISSUED_LC|BENEFICIARY]->(lc:LetterOfCredit)
+WHERE e.country IN ['Iran', 'North Korea', 'Syria', 'Venezuela']
+RETURN e.country, count(lc) AS lc_count, sum(lc.amount) AS total_exposure
+ORDER BY total_exposure DESC;
 ```
 
 ---
 
-## 6. Architecture: Hardcoded vs Agentic
+## 🏗️ Project Structure
 
-| Aspect | Hardcoded (`ingest_layer_a.py`) | Agentic (`ingest_agent.py`) |
-|--------|----------------------------------|------------------------------|
-| **Speed** | ⚡ Fast (5k rows/sec) | 🐢 Slower (Local inference) |
-| **Control** | 🎯 Explicit schema | 🤖 LLM decides |
-| **Privacy** | 🔒 Local | 🔒 Local (Ollama) |
-| **Setup** | Zero config | Requires Ollama installed |
+```
+comp3520/
+├── data/
+│   ├── raw/                    # Kaggle datasets (not in git)
+│   ├── processed/              # Generated data (not in git)
+│   └── neo4j_import/          # Neo4j-ready CSVs
+│
+├── src/
+│   ├── data_generation/
+│   │   ├── generate_sanctions_list.py
+│   │   └── enrich_transactions.py
+│   ├── ingest_realtime.py     # Neo4j ingestion
+│   ├── api.py                 # FastAPI server
+│   └── skills/                # Agent skills
+│
+├── venv/                      # Virtual environment (not in git)
+├── requirements.txt
+├── .gitignore
+└── README.md
+```
 
-**Recommendation**: Use **hardcoded** for your FYP's transaction data. Use **agentic** when you add unstructured news/documents in Layer B/C.
+---
+
+## 🛠️ Development Workflow
+
+**Daily routine:**
+```bash
+# 1. Navigate to project
+cd ~/comp3520
+
+# 2. Activate virtual environment
+source venv/bin/activate
+
+# 3. Make sure services are running
+docker ps | grep neo4j-sentinel  # Neo4j should be running
+curl http://localhost:11434/api/tags  # Ollama should respond
+
+# 4. Work on your code
+python src/api.py
+
+# 5. When done, deactivate
+deactivate
+```
+
+**Update dependencies:**
+```bash
+source venv/bin/activate
+pip install <new-package>
+pip freeze > requirements.txt
+git add requirements.txt
+git commit -m "Add <new-package> dependency"
+```
+
+---
+
+## 📚 Next Steps
+
+### Week 2: ML Models
+- [ ] Train XGBoost risk scoring model
+- [ ] Implement quantum anomaly detector (PennyLane)
+- [ ] Build predictive analytics (Prophet, LSTM)
+
+### Week 3: Self-Improving Agent
+- [ ] Implement LangGraph state machine
+- [ ] Add ChromaDB memory system
+- [ ] Build privacy gateway for external APIs
+
+### Week 4: Dashboard
+- [ ] Create Streamlit multi-page app
+- [ ] Add real-time visualizations (Plotly)
+- [ ] Implement role-based views
+
+### Week 5: Demo
+- [ ] Prepare golden demo scenarios
+- [ ] Record screen demos
+- [ ] Write FYP documentation
+
+---
+
+## 🐛 Troubleshooting
+
+### "Module not found" errors
+```bash
+# Make sure virtual environment is activated
+source venv/bin/activate
+# Reinstall dependencies
+pip install -r requirements.txt
+```
+
+### Neo4j connection errors
+```bash
+# Check if Neo4j is running
+docker ps | grep neo4j-sentinel
+
+# Restart Neo4j
+docker restart neo4j-sentinel
+
+# Check logs
+docker logs neo4j-sentinel
+```
+
+### Ollama not responding
+```bash
+# Start Ollama server
+ollama serve
+
+# In another terminal, verify
+curl http://localhost:11434/api/tags
+```
+
+---
+
+## 📖 Documentation
+
+- **Data Sources**: See `data/raw/README.md`
+- **Generated Data Schema**: See `data/processed/README.md`
+- **Neo4j Import Guide**: See `data/neo4j_import/README.md`
+
+---
+
+## 🎯 Project Goals
+
+**For FYP:**
+- Demonstrate full-stack AI system design
+- Combine graph databases + LLMs + quantum ML
+- Address real-world trade finance challenges
+
+**For HSBC Internship:**
+- Showcase transaction banking domain knowledge
+- Highlight privacy-first architecture
+- Prove ability to build production-grade systems
+
+---
+
+## 📝 License
+
+MIT License - See LICENSE file for details
+
+---
+
+## 👤 Author
+
+Brian Ho - HKU Data Science Student
+- GitHub: [@hck717](https://github.com/hck717)
+- Project: Sentinel-Zero Trade Finance Intelligence Platform
+- Course: COMP3520 Final Year Project
+
+---
+
+**Last Updated**: January 22, 2026
