@@ -42,7 +42,8 @@ comp3520/
 │   │   ├── graph_query/             # Skill 3
 │   │   └── quantum_anomaly/         # Skill 4
 │   ├── graph/              # Neo4j operations
-│   └── data_generation/    # Synthetic data
+│   ├── data_generation/    # Synthetic data
+│   └── ingest_trade_finance.py  # Neo4j data ingestion
 ├── test_agent_skills.py    # **Main test suite**
 ├── models/                 # Trained models
 └── docs/                   # Documentation
@@ -78,77 +79,66 @@ docker run -d --name neo4j-sentinel \
 # Check logs: docker logs neo4j-sentinel
 ```
 
-#### 2b. Load Sample Data
+#### 2b. Generate and Load Trade Finance Data
+
+**Option 1: Automated Ingestion (Recommended)**
+```bash
+# Generate synthetic trade finance data
+python -m src.data_generation.generate_synthetic_data
+
+# Generate sanctions lists
+python -m src.data_generation.generate_sanctions_list
+
+# Enrich transaction data
+python -m src.data_generation.enrich_transactions
+
+# Ingest all data into Neo4j
+python src/ingest_trade_finance.py
+```
+
+**What gets loaded:**
+- 🏢 Entities: Buyers, Sellers, Banks
+- 📝 Letters of Credit (LC)
+- 🧸 Commercial Invoices
+- 🚢 Bills of Lading
+- 📦 Packing Lists
+- 🚫 Sanctions screening
+- ⚠️ Fraud flags
+
+**Verify ingestion:**
 ```bash
 # Open Neo4j Browser
 open http://localhost:7474
+# Login: neo4j / password123
 
+# Run query to check data
+MATCH (n) RETURN count(n) AS total_nodes;
+```
+
+---
+
+**Option 2: Quick Sample Data (Manual)**
+
+If you just want to test Graph RAG quickly without full data generation:
+
+```bash
+# Open Neo4j Browser: http://localhost:7474
 # Login: neo4j / password123
 ```
 
-**Paste these queries in Neo4j Browser to create sample data:**
+Paste these queries:
 
 ```cypher
-// Create Buyers
-CREATE (b1:Buyer {name: 'Global Electronics Inc', country: 'US', credit_rating: 'AAA'})
-CREATE (b2:Buyer {name: 'Euro Trading GmbH', country: 'DE', credit_rating: 'AA'})
-CREATE (b3:Buyer {name: 'Asia Imports Ltd', country: 'CN', credit_rating: 'A'})
-CREATE (b4:Buyer {name: 'Suspicious Buyer Corp', country: 'IR', credit_rating: 'C'})
-RETURN b1, b2, b3, b4;
+// Create sample entities and transactions
+CREATE (b1:Buyer {name: 'Global Electronics Inc', country: 'US'})
+CREATE (s1:Seller {name: 'Tech Manufacturing Co', country: 'TW'})
+CREATE (b1)-[:TRANSACTED {amount: 250000, date: date(), risk_score: 0.1}]->(s1)
+RETURN b1, s1;
 ```
 
-```cypher
-// Create Sellers
-CREATE (s1:Seller {name: 'Tech Manufacturing Co', country: 'TW', industry: 'Electronics'})
-CREATE (s2:Seller {name: 'Global Exports LLC', country: 'US', industry: 'General Trade'})
-CREATE (s3:Seller {name: 'Shady Shell Company', country: 'RU', industry: 'Unknown'})
-CREATE (s4:Seller {name: 'Premium Goods Ltd', country: 'HK', industry: 'Luxury'})
-RETURN s1, s2, s3, s4;
-```
+**📚 Full Neo4j guide:** [docs/NEO4J_SETUP.md](docs/NEO4J_SETUP.md)
 
-```cypher
-// Create Normal Transactions
-MATCH (b:Buyer {name: 'Global Electronics Inc'}), (s:Seller {name: 'Tech Manufacturing Co'})
-CREATE (b)-[:TRANSACTED {
-  amount: 250000,
-  date: date('2025-11-15'),
-  lc_number: 'LC-2025-1001',
-  status: 'completed',
-  risk_score: 0.1
-}]->(s);
-
-MATCH (b:Buyer {name: 'Euro Trading GmbH'}), (s:Seller {name: 'Premium Goods Ltd'})
-CREATE (b)-[:TRANSACTED {
-  amount: 180000,
-  date: date('2025-12-01'),
-  lc_number: 'LC-2025-1002',
-  status: 'completed',
-  risk_score: 0.15
-}]->(s);
-```
-
-```cypher
-// Create Suspicious Transaction (High-Risk)
-MATCH (b:Buyer {name: 'Suspicious Buyer Corp'}), (s:Seller {name: 'Shady Shell Company'})
-CREATE (b)-[:TRANSACTED {
-  amount: 950000,
-  date: date('2026-01-05'),
-  lc_number: 'LC-2026-1004',
-  status: 'flagged',
-  risk_score: 0.95,
-  alert: 'High-risk parties'
-}]->(s);
-```
-
-**Test your data with a query:**
-```cypher
-// View all transactions
-MATCH (b:Buyer)-[t:TRANSACTED]->(s:Seller)
-RETURN b.name AS buyer, s.name AS seller, t.amount AS amount, t.risk_score AS risk
-ORDER BY t.risk_score DESC;
-```
-
-**📚 Full Neo4j guide with 8+ queries:** [docs/NEO4J_SETUP.md](docs/NEO4J_SETUP.md)
+---
 
 ### 3. Test All 4 Agent Skills
 ```bash
@@ -240,16 +230,19 @@ from neo4j import GraphDatabase
 
 driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "password123"))
 
-# Find circular transactions (potential money laundering)
+# Find high-risk transactions
 query = """
-MATCH path = (a:Entity)-[:TRANSACTED*3..5]->(a)
-RETURN path LIMIT 10
+MATCH (b:Buyer)-[t:TRANSACTED]->(s:Seller)
+WHERE t.risk_score > 0.7
+RETURN b.name AS buyer, s.name AS seller, t.amount AS amount, t.risk_score AS risk
+ORDER BY t.risk_score DESC
+LIMIT 10
 """
 
 with driver.session() as session:
     result = session.run(query)
     for record in result:
-        print(record['path'])
+        print(f"{record['buyer']} -> {record['seller']}: ${record['amount']:,.0f} (Risk: {record['risk']})")
 ```
 
 **📚 Full Neo4j guide:** [docs/NEO4J_SETUP.md](docs/NEO4J_SETUP.md)
@@ -391,6 +384,14 @@ docker restart neo4j-sentinel
 
 # View logs
 docker logs neo4j-sentinel
+```
+
+### Neo4j Empty Database
+```bash
+# Re-run ingestion
+python src/ingest_trade_finance.py
+
+# Or load quick sample data (see Quick Start section)
 ```
 
 ### Import Errors
