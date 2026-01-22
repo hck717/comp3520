@@ -109,9 +109,21 @@ def generate_trade_finance_documents(df_trade, df_customs, num_records=1000):
         lc_expiry_date = lc_issue_date + timedelta(days=random.randint(60, 120))
         latest_ship_date = lc_expiry_date - timedelta(days=random.randint(10, 30))
         
-        # Amount with potential discrepancy
+        # Amount with REALISTIC discrepancies
         lc_amount = row.get('trade_value', random.uniform(50000, 500000))
-        invoice_amount = lc_amount * random.uniform(0.97, 1.08)  # ±3-8% variance
+        
+        # 15% of transactions have significant discrepancies (>10%)
+        # 85% have normal variance (<5%)
+        if random.random() < 0.15:
+            # Inject significant discrepancy (11-25% difference)
+            variance = random.choice([
+                random.uniform(1.11, 1.25),  # Invoice 11-25% higher
+                random.uniform(0.75, 0.89)   # Invoice 11-25% lower
+            ])
+            invoice_amount = lc_amount * variance
+        else:
+            # Normal business variance (0-5%)
+            invoice_amount = lc_amount * random.uniform(0.98, 1.05)
         
         # Commodity
         if idx < len(df_customs):
@@ -174,7 +186,7 @@ def generate_trade_finance_documents(df_trade, df_customs, num_records=1000):
             'total_packages': random.randint(50, 500),
             'gross_weight_kg': random.randint(5000, 50000),
             
-            # Status flags
+            # Status flags (recalculate with actual amounts)
             'amount_discrepancy': abs(invoice_amount - lc_amount) > lc_amount * 0.1,
             'late_shipment': actual_ship_date > latest_ship_date,
             'fraud_flag': row.get('fraud_flag', random.random() < 0.03)
