@@ -83,17 +83,29 @@ def train_model(
     y_pred = model.predict(X_scaled)
     y_pred = np.where(y_pred == -1, 1, 0)  # Convert -1 (anomaly) to 1
     
-    # Metrics
+    # Metrics with safe handling of missing classes
     report = classification_report(y, y_pred, output_dict=True, zero_division=0)
     cm = confusion_matrix(y, y_pred)
     
+    # Safely get metrics for class '1' (anomaly)
+    if '1' in report:
+        precision = report['1']['precision']
+        recall = report['1']['recall']
+        f1_score = report['1']['f1-score']
+    else:
+        # Fallback if class '1' not in report
+        precision = 0.0
+        recall = 0.0
+        f1_score = 0.0
+        logger.warning("Class '1' (anomaly) not found in classification report!")
+    
     logger.info(f"\nModel Performance:")
-    logger.info(f"  Precision: {report['1']['precision']:.3f}")
-    logger.info(f"  Recall: {report['1']['recall']:.3f}")
-    logger.info(f"  F1-Score: {report['1']['f1-score']:.3f}")
+    logger.info(f"  Precision: {precision:.3f}")
+    logger.info(f"  Recall: {recall:.3f}")
+    logger.info(f"  F1-Score: {f1_score:.3f}")
     logger.info(f"\nConfusion Matrix:")
-    logger.info(f"  TN: {cm[0][0]}, FP: {cm[0][1]}")
-    logger.info(f"  FN: {cm[1][0]}, TP: {cm[1][1]}")
+    logger.info(f"  TN: {cm[0][0]}, FP: {cm[0][1] if cm.shape[1] > 1 else 0}")
+    logger.info(f"  FN: {cm[1][0] if cm.shape[0] > 1 else 0}, TP: {cm[1][1] if cm.shape[0] > 1 and cm.shape[1] > 1 else 0}")
     
     # Save model and scaler
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -101,9 +113,9 @@ def train_model(
     logger.info(f"\nModel saved to {output_path}")
     
     return {
-        'precision': report['1']['precision'],
-        'recall': report['1']['recall'],
-        'f1_score': report['1']['f1-score'],
+        'precision': precision,
+        'recall': recall,
+        'f1_score': f1_score,
     }
 
 
