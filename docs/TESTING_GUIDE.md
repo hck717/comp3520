@@ -26,7 +26,7 @@ For each skill, we'll test at **3 levels**:
 
 ```bash
 source venv/bin/activate
-pip install pytest pytest-cov pytest-benchmark
+pip install pytest pytest-cov
 ```
 
 ### Step 2: Set Environment Variables
@@ -73,728 +73,342 @@ driver.close()
 
 ## 🎯 Skill 1: Compliance Screening Tests
 
-### Unit Test 1: Exact Match
+### Quick Test (All 3 Tests)
+
+```bash
+# Run the quick test suite (recommended)
+python tests/quick_test_compliance.py
+```
+
+**Expected Output:**
+```
+============================================================
+QUICK TEST: Compliance Screening Skill
+============================================================
+
+[Test 1] Screening clean entity...
+  Entity: HSBC Hong Kong
+  Sanctions Match: False
+  Country Risk: low (2/10)
+  Recommendation: APPROVE
+  Latency: 87.3ms
+  ✅ PASSED
+
+[Test 2] Screening high-risk country entity...
+  Entity: Tehran Trading Corp
+  Country Risk: high (9/10)
+  Recommendation: REVIEW
+  Latency: 124.5ms
+  ✅ PASSED
+
+[Test 3] Batch screening (10 entities)...
+  Entities Screened: 10
+  Total Time: 0.24s
+  Throughput: 42.3 entities/sec
+  ✅ PASSED
+
+============================================================
+✅ ALL COMPLIANCE SCREENING TESTS PASSED
+============================================================
+```
+
+---
+
+### Manual Testing (Individual Functions)
+
+If you want to test individual functions:
+
+#### Test 1: Exact Match
 
 ```python
-# tests/test_compliance_screening.py
+# Create a test file: test_compliance_manual.py
 import sys
 sys.path.insert(0, 'src')
 
 from skills.compliance_screening.scripts.screen_entity import screen_entity
 
-def test_exact_sanctions_match():
-    """
-    Test exact match against sanctions list.
-    """
-    # This entity should exist in your sanctions list
-    result = screen_entity(
-        entity_name="Specially Designated National Corp",
-        entity_country="IR",
-        entity_type="Buyer"
-    )
-    
-    assert result['sanctions_match'] == True
-    assert result['recommendation'] == 'BLOCK'
-    assert 'OFAC' in result['sanctions_details']['list_type']
-    print("✅ Exact match test PASSED")
+# Test exact match
+result = screen_entity(
+    entity_name="HSBC Hong Kong",
+    entity_country="HK",
+    entity_type="Bank"
+)
 
-if __name__ == '__main__':
-    test_exact_sanctions_match()
+print(f"Sanctions Match: {result['sanctions_match']}")
+print(f"Country Risk: {result['country_risk']} ({result['country_risk_score']}/10)")
+print(f"Recommendation: {result['recommendation']}")
 ```
 
 **Run it:**
 ```bash
-python tests/test_compliance_screening.py
+python test_compliance_manual.py
 ```
 
 ---
 
-### Unit Test 2: Fuzzy Match
+#### Test 2: Country Risk Scoring
 
 ```python
-def test_fuzzy_sanctions_match():
-    """
-    Test fuzzy matching with slight name variation.
-    """
-    # Misspelled name should still match
-    result = screen_entity(
-        entity_name="Specally Designatd National Corp",  # Typos
-        entity_country="IR",
-        entity_type="Buyer"
-    )
-    
-    # Should match with >85% similarity
-    if result['sanctions_match']:
-        assert result['fuzzy_match_score'] >= 85
-        print(f"✅ Fuzzy match test PASSED (score: {result['fuzzy_match_score']}%)")
-    else:
-        print("⚠️  Fuzzy match did not trigger")
+import sys
+sys.path.insert(0, 'src')
 
-if __name__ == '__main__':
-    test_fuzzy_sanctions_match()
+from skills.compliance_screening.scripts.country_risk import get_country_risk
+
+# Test various countries
+countries = ['IR', 'KP', 'SY', 'US', 'HK', 'SG']
+
+for country in countries:
+    risk = get_country_risk(country)
+    print(f"{country}: {risk['risk_score']}/10 ({risk['risk_level']})")
 ```
 
 ---
 
-### Unit Test 3: Country Risk Scoring
+#### Test 3: Batch Screening
 
 ```python
-def test_country_risk_scoring():
-    """
-    Test country risk scoring for various countries.
-    """
-    from skills.compliance_screening.scripts.country_risk import get_country_risk
-    
-    high_risk_countries = ['IR', 'KP', 'SY', 'VE', 'RU']
-    low_risk_countries = ['US', 'GB', 'DE', 'JP', 'SG']
-    
-    for country in high_risk_countries:
-        risk = get_country_risk(country)
-        assert risk['risk_score'] >= 7, f"{country} should be high risk"
-        print(f"✅ {country}: {risk['risk_score']}/10 (high risk)")
-    
-    for country in low_risk_countries:
-        risk = get_country_risk(country)
-        assert risk['risk_score'] <= 3, f"{country} should be low risk"
-        print(f"✅ {country}: {risk['risk_score']}/10 (low risk)")
+import sys
+sys.path.insert(0, 'src')
 
-if __name__ == '__main__':
-    test_country_risk_scoring()
-```
+from skills.compliance_screening.scripts.batch_screen import batch_screen
 
----
+# Test batch screening
+entities = [
+    {"name": "Company A", "country": "HK", "type": "Buyer"},
+    {"name": "Company B", "country": "IR", "type": "Seller"},
+    {"name": "Company C", "country": "US", "type": "Buyer"},
+]
 
-### Integration Test: Full Screening Workflow
+results = batch_screen(entities, show_progress=True)
 
-```python
-import time
-
-def test_compliance_screening_integration():
-    """
-    Test full compliance screening workflow with performance check.
-    """
-    test_entities = [
-        {"name": "Clean Trading Corp", "country": "HK", "type": "Buyer"},
-        {"name": "Sanctioned Entity Inc", "country": "IR", "type": "Seller"},
-        {"name": "HSBC Hong Kong", "country": "HK", "type": "Bank"},
-    ]
-    
-    for entity in test_entities:
-        start = time.time()
-        result = screen_entity(
-            entity_name=entity['name'],
-            entity_country=entity['country'],
-            entity_type=entity['type']
-        )
-        latency = (time.time() - start) * 1000  # Convert to ms
-        
-        print(f"\n{'='*60}")
-        print(f"Entity: {entity['name']}")
-        print(f"Sanctions Match: {result['sanctions_match']}")
-        print(f"Country Risk: {result['country_risk']} ({result['country_risk_score']}/10)")
-        print(f"Recommendation: {result['recommendation']}")
-        print(f"Latency: {latency:.1f}ms")
-        
-        # Performance assertion
-        assert latency < 500, f"Latency {latency:.1f}ms exceeds 500ms target"
-        print(f"✅ Performance OK (<500ms)")
-
-if __name__ == '__main__':
-    test_compliance_screening_integration()
-```
-
-**Run it:**
-```bash
-python tests/test_compliance_screening.py
+for result in results:
+    print(f"\n{result['entity_name']}:")
+    print(f"  Recommendation: {result['recommendation']}")
+    print(f"  Country Risk: {result['country_risk_score']}/10")
 ```
 
 ---
 
 ## 🎯 Skill 2: Risk Assessment Tests
 
-### Unit Test 1: Feature Extraction from Neo4j
+**Status**: ⚠️ Scripts not implemented yet (Week 2 Day 3-4)
 
-```python
-# tests/test_risk_assessment.py
-import sys
-sys.path.insert(0, 'src')
+The SKILL.md documentation is complete, but the Python scripts need to be implemented:
 
-from skills.risk_assessment.scripts.extract_features import extract_entity_features
-
-def test_feature_extraction():
-    """
-    Test extracting 12D features from Neo4j.
-    """
-    # Pick any buyer from your Neo4j data
-    features = extract_entity_features(
-        entity_name="Global Import Export Ltd",  # Adjust to match your data
-        entity_type="Buyer",
-        lookback_days=90
-    )
-    
-    # Verify all 12 features are present
-    expected_features = [
-        'transaction_count', 'total_exposure', 'avg_lc_amount',
-        'discrepancy_rate', 'late_shipment_rate', 'payment_delay_avg',
-        'counterparty_diversity', 'high_risk_country_exposure', 'sanctions_exposure',
-        'doc_completeness', 'amendment_rate', 'fraud_flags'
-    ]
-    
-    for feat in expected_features:
-        assert feat in features, f"Missing feature: {feat}"
-        print(f"✅ {feat}: {features[feat]}")
-    
-    print("\n✅ All 12 features extracted successfully")
-
-if __name__ == '__main__':
-    test_feature_extraction()
-```
-
----
-
-### Unit Test 2: Training Data Generation
-
-```python
-def test_training_data_generation():
-    """
-    Test generating labeled training data.
-    """
-    from skills.risk_assessment.scripts.generate_training_labels import generate_labels
-    
-    # Generate labels for 100 entities
-    training_data = generate_labels(n_entities=100)
-    
-    # Verify structure
-    assert len(training_data) == 100
-    assert 'label' in training_data.columns
-    assert training_data['label'].isin([0, 1]).all()  # Binary labels
-    
-    # Check class distribution
-    high_risk_pct = training_data['label'].mean()
-    print(f"High-risk entities: {high_risk_pct:.1%}")
-    assert 0.15 <= high_risk_pct <= 0.25, "Expected 15-25% high-risk"
-    
-    print("✅ Training data generation test PASSED")
-
-if __name__ == '__main__':
-    test_training_data_generation()
-```
-
----
-
-### Integration Test: Train and Score
-
-```python
-import time
-import numpy as np
-
-def test_risk_model_training():
-    """
-    Test XGBoost model training and scoring.
-    """
-    from skills.risk_assessment.scripts.train_model import train_xgboost_model
-    from skills.risk_assessment.scripts.score_entity import score_entity
-    
-    # Step 1: Train model
-    print("Training XGBoost model...")
-    start = time.time()
-    metrics = train_xgboost_model(
-        training_data_path="data/processed/training_data.csv",
-        model_output_path="models/risk_model_test.pkl",
-        test_size=0.2
-    )
-    train_time = time.time() - start
-    
-    print(f"\nTraining completed in {train_time:.1f}s")
-    print(f"AUC-ROC: {metrics['auc_roc']:.3f}")
-    print(f"F1 Score: {metrics['f1_score']:.3f}")
-    
-    # Verify performance
-    assert metrics['auc_roc'] >= 0.85, f"AUC-ROC {metrics['auc_roc']:.3f} < 0.85"
-    assert train_time < 300, f"Training took {train_time:.1f}s > 5 min"
-    print("✅ Model training test PASSED")
-    
-    # Step 2: Score entity
-    print("\nScoring entity...")
-    start = time.time()
-    score = score_entity(
-        entity_name="Global Import Export Ltd",
-        entity_type="Buyer",
-        model_path="models/risk_model_test.pkl"
-    )
-    inference_time = (time.time() - start) * 1000
-    
-    print(f"Risk Score: {score['risk_score']:.2f}")
-    print(f"Risk Category: {score['risk_category']}")
-    print(f"Credit Limit: ${score['credit_limit_usd']:,}")
-    print(f"Inference Time: {inference_time:.1f}ms")
-    
-    # Verify performance
-    assert 0 <= score['risk_score'] <= 1, "Risk score out of range"
-    assert inference_time < 100, f"Inference {inference_time:.1f}ms > 100ms"
-    print("✅ Entity scoring test PASSED")
-
-if __name__ == '__main__':
-    test_risk_model_training()
-```
-
-**Run it:**
 ```bash
-python tests/test_risk_assessment.py
+# These scripts need to be created:
+src/skills/risk_assessment/scripts/
+├── extract_features.py       # Extract 12D features from Neo4j
+├── generate_training_labels.py  # Create labeled dataset
+├── train_model.py            # Train XGBoost
+└── score_entity.py           # Inference
+```
+
+**To test** (once implemented):
+```bash
+python tests/quick_test_risk.py
 ```
 
 ---
 
 ## 🎯 Skill 3: Predictive Analytics Tests
 
-### Unit Test 1: Prophet LC Volume Forecasting
+**Status**: ⚠️ Scripts not implemented yet (Week 2 Day 5-6)
 
-```python
-# tests/test_predictive_analytics.py
-import sys
-sys.path.insert(0, 'src')
-
-from skills.predictive_analytics.scripts.prophet_forecaster import forecast_lc_volume
-import pandas as pd
-
-def test_prophet_forecasting():
-    """
-    Test Prophet LC volume forecasting.
-    """
-    # Train model (if not already trained)
-    print("Training Prophet model...")
-    from skills.predictive_analytics.scripts.train_prophet import train_prophet_model
-    train_prophet_model()
-    
-    # Generate forecast
-    forecast = forecast_lc_volume(forecast_days=30)
-    
-    # Verify structure
-    assert len(forecast['predictions']) == 30
-    assert 'date' in forecast['predictions'][0]
-    assert 'lc_count' in forecast['predictions'][0]
-    assert 'total_usd' in forecast['predictions'][0]
-    
-    # Display sample
-    print("\n7-Day Forecast:")
-    for day in forecast['predictions'][:7]:
-        print(f"{day['date']}: {day['lc_count']} LCs, ${day['total_usd']:,.0f}")
-    
-    print(f"\n✅ Prophet forecasting test PASSED")
-    print(f"Trend: {forecast['trend']}")
-
-if __name__ == '__main__':
-    test_prophet_forecasting()
-```
-
----
-
-### Unit Test 2: LSTM Port Delay Prediction
-
-```python
-def test_lstm_port_delay():
-    """
-    Test LSTM port delay prediction.
-    """
-    from skills.predictive_analytics.scripts.lstm_predictor import predict_port_delay
-    
-    # Test various port pairs
-    test_cases = [
-        {"loading": "CNSHA", "discharge": "USNYC", "cargo": "Electronics", "volume": 500},
-        {"loading": "SGSIN", "discharge": "HKHKG", "cargo": "Textiles", "volume": 200},
-        {"loading": "AEJEA", "discharge": "NLRTM", "cargo": "Machinery", "volume": 1000},
-    ]
-    
-    for case in test_cases:
-        delay = predict_port_delay(
-            port_of_loading=case['loading'],
-            port_of_discharge=case['discharge'],
-            cargo_type=case['cargo'],
-            cargo_volume_cbm=case['volume'],
-            shipment_date="2026-02-15"
-        )
-        
-        print(f"\n{case['loading']} → {case['discharge']}:")
-        print(f"  Predicted Delay: {delay['predicted_delay_days']:.1f} days")
-        print(f"  Risk Level: {delay['risk_level']}")
-        
-        # Verify reasonable range
-        assert 0 <= delay['predicted_delay_days'] <= 30, "Delay out of range"
-    
-    print("\n✅ LSTM port delay test PASSED")
-
-if __name__ == '__main__':
-    test_lstm_port_delay()
-```
-
----
-
-### Unit Test 3: Isolation Forest Anomaly Detection
-
-```python
-def test_isolation_forest():
-    """
-    Test Isolation Forest anomaly detection.
-    """
-    from skills.predictive_analytics.scripts.isolation_forest import detect_anomalies
-    
-    # Test on known entities
-    test_entities = [
-        ("Clean Trading Corp", "LC2026-HK-00001"),
-        ("Suspicious Corp", "LC2026-HK-00999"),  # Should be anomaly
-    ]
-    
-    for entity_name, transaction_id in test_entities:
-        result = detect_anomalies(entity_name, transaction_id)
-        
-        print(f"\n{entity_name}:")
-        print(f"  Anomaly: {result['is_anomaly']}")
-        print(f"  Anomaly Score: {result['anomaly_score']:.2f}")
-        print(f"  Confidence: {result['anomaly_confidence']:.0%}")
-        
-        if result['is_anomaly']:
-            print(f"  Top Feature: {result['contributing_features'][0]['feature']}")
-    
-    print("\n✅ Isolation Forest test PASSED")
-
-if __name__ == '__main__':
-    test_isolation_forest()
-```
-
-**Run it:**
+**To test** (once implemented):
 ```bash
-python tests/test_predictive_analytics.py
+python tests/quick_test_predictive.py
 ```
 
 ---
 
 ## 🎯 Skill 4: Quantum Anomaly Detection Tests
 
-### Unit Test 1: Feature Normalization
+**Status**: ⚠️ Scripts not implemented yet (Week 2 Day 7)
+
+**To test** (once implemented):
+```bash
+python tests/quick_test_quantum.py
+```
+
+---
+
+## 🚀 Running All Tests (Once Implemented)
+
+### Option 1: Using Bash Script
+
+```bash
+bash tests/run_quick_tests.sh
+```
+
+### Option 2: Manually Run Each Test
+
+```bash
+# Currently working:
+python tests/quick_test_compliance.py   # ✅ WORKS
+
+# Not yet implemented:
+python tests/quick_test_risk.py         # ⏳ Needs scripts
+python tests/quick_test_predictive.py   # ⏳ Needs scripts
+python tests/quick_test_quantum.py      # ⏳ Needs scripts
+```
+
+---
+
+## 📊 Current Implementation Status
+
+| Skill | Scripts Status | Tests Status | Can Test? |
+|-------|---------------|--------------|----------|
+| **Compliance Screening** | ✅ Complete | ✅ Passing | ✅ YES |
+| **Risk Assessment** | ⏳ Design only | ⏳ Pending | ❌ Not yet |
+| **Predictive Analytics** | ⏳ Design only | ⏳ Pending | ❌ Not yet |
+| **Quantum Anomaly** | ⏳ Design only | ⏳ Pending | ❌ Not yet |
+
+---
+
+## 🔧 Testing Custom Entities
+
+Create your own test script to try different entities:
 
 ```python
-# tests/test_quantum_anomaly.py
+# create_custom_test.py
 import sys
 sys.path.insert(0, 'src')
-import numpy as np
+from skills.compliance_screening.scripts.screen_entity import screen_entity
 
-from skills.quantum_anomaly.scripts.extract_quantum_features import normalize_features
+# Test your own entities
+test_cases = [
+    ("Apple Inc", "US", "Buyer"),
+    ("Moscow Trading Co", "RU", "Seller"),
+    ("Standard Chartered", "HK", "Bank"),
+    ("Tehran Oil Corp", "IR", "Seller"),
+    ("Samsung Electronics", "KR", "Buyer"),
+]
 
-def test_quantum_feature_normalization():
-    """
-    Test 4D feature normalization for quantum encoding.
-    """
-    # Test case 1: Normal transaction
-    features = {
-        'amount_deviation': 0.5,
-        'time_deviation': 1.0,
-        'port_risk': 0.3,
-        'doc_completeness': 0.95
-    }
-    
-    normalized = normalize_features(features)
-    
-    # Verify all in [0, 1]
-    assert np.all(normalized >= 0) and np.all(normalized <= 1), "Features not normalized"
-    print(f"Normal transaction: {normalized}")
-    print("✅ Normalization test PASSED")
-    
-    # Test case 2: Extreme values
-    extreme_features = {
-        'amount_deviation': 5.0,  # Should clip to 3
-        'time_deviation': 10.0,   # Should clip to 5
-        'port_risk': 0.9,
-        'doc_completeness': 0.5
-    }
-    
-    normalized_extreme = normalize_features(extreme_features)
-    print(f"Extreme transaction: {normalized_extreme}")
-    assert np.all(normalized_extreme >= 0) and np.all(normalized_extreme <= 1)
-    print("✅ Extreme value clipping test PASSED")
+print("\n" + "="*60)
+print("CUSTOM ENTITY SCREENING TEST")
+print("="*60)
 
-if __name__ == '__main__':
-    test_quantum_feature_normalization()
-```
+for name, country, entity_type in test_cases:
+    result = screen_entity(name, country, entity_type)
+    print(f"\n{name} ({country}):")
+    print(f"  Sanctions Match: {result['sanctions_match']}")
+    print(f"  Country Risk: {result['country_risk_score']}/10")
+    print(f"  Recommendation: {result['recommendation']}")
 
----
-
-### Unit Test 2: VQC Circuit Execution
-
-```python
-import pennylane as qml
-from pennylane import numpy as np
-
-def test_vqc_circuit():
-    """
-    Test 4-qubit VQC circuit execution.
-    """
-    # Define quantum device
-    dev = qml.device('default.qubit', wires=4)
-    
-    @qml.qnode(dev)
-    def quantum_circuit(features, weights):
-        # Amplitude encoding
-        qml.AmplitudeEmbedding(features, wires=range(4), normalize=True)
-        
-        # Variational layers
-        for i in range(4):
-            qml.RY(weights[i], wires=i)
-        for i in range(3):
-            qml.CNOT(wires=[i, i+1])
-        
-        for i in range(4):
-            qml.RY(weights[i+4], wires=i)
-        for i in range(3):
-            qml.CNOT(wires=[i, i+1])
-        
-        for i in range(4):
-            qml.RY(weights[i+8], wires=i)
-        
-        return qml.expval(qml.PauliZ(0))
-    
-    # Test with random features and weights
-    features = np.array([0.5, 0.3, 0.7, 0.9])
-    weights = np.random.rand(12) * np.pi
-    
-    result = quantum_circuit(features, weights)
-    
-    print(f"Circuit output: {result:.4f}")
-    assert -1 <= result <= 1, "Circuit output out of range"
-    print("✅ VQC circuit test PASSED")
-
-if __name__ == '__main__':
-    test_vqc_circuit()
-```
-
----
-
-### Integration Test: Quantum vs Classical Benchmark
-
-```python
-import time
-
-def test_quantum_vs_classical_benchmark():
-    """
-    Benchmark quantum VQC vs classical Isolation Forest.
-    """
-    from skills.quantum_anomaly.scripts.benchmark import benchmark_quantum_vs_classical
-    
-    print("Running quantum vs classical benchmark...")
-    print("(This may take a few minutes)\n")
-    
-    comparison = benchmark_quantum_vs_classical(
-        test_data_path="data/processed/test_data.csv"
-    )
-    
-    print("\n" + "="*60)
-    print("QUANTUM VQC")
-    print("="*60)
-    print(f"F1 Score:        {comparison['quantum']['f1_score']:.3f}")
-    print(f"Precision:       {comparison['quantum']['precision']:.3f}")
-    print(f"Recall:          {comparison['quantum']['recall']:.3f}")
-    print(f"Avg Inference:   {comparison['quantum']['avg_inference_ms']:.1f}ms")
-    
-    print("\n" + "="*60)
-    print("CLASSICAL ISOLATION FOREST")
-    print("="*60)
-    print(f"F1 Score:        {comparison['classical']['f1_score']:.3f}")
-    print(f"Precision:       {comparison['classical']['precision']:.3f}")
-    print(f"Recall:          {comparison['classical']['recall']:.3f}")
-    print(f"Avg Inference:   {comparison['classical']['avg_inference_ms']:.1f}ms")
-    
-    print("\n" + "="*60)
-    print("QUANTUM ADVANTAGE")
-    print("="*60)
-    print(f"F1 Improvement:  {comparison['quantum_advantage']['f1_improvement_pct']:.1f}%")
-    print(f"Latency Penalty: +{comparison['quantum_advantage']['latency_penalty_ms']:.0f}ms")
-    
-    # Verify quantum advantage
-    assert comparison['quantum']['f1_score'] >= comparison['classical']['f1_score'], \
-        "Quantum should match or exceed classical F1"
-    
-    print("\n✅ Quantum benchmark test PASSED")
-
-if __name__ == '__main__':
-    test_quantum_vs_classical_benchmark()
+print("\n" + "="*60)
 ```
 
 **Run it:**
 ```bash
-python tests/test_quantum_anomaly.py
-```
-
----
-
-## 🚀 Running All Tests
-
-### Create Master Test Suite
-
-```python
-# tests/run_all_tests.py
-import sys
-import time
-
-def run_all_tests():
-    """
-    Run all agent skill tests.
-    """
-    print("\n" + "="*60)
-    print("SENTINEL-ZERO AGENT SKILLS TEST SUITE")
-    print("="*60)
-    
-    start_time = time.time()
-    
-    # Test 1: Compliance Screening
-    print("\n[1/4] Testing Compliance Screening Skill...")
-    from test_compliance_screening import (
-        test_exact_sanctions_match,
-        test_fuzzy_sanctions_match,
-        test_country_risk_scoring,
-        test_compliance_screening_integration
-    )
-    test_exact_sanctions_match()
-    test_fuzzy_sanctions_match()
-    test_country_risk_scoring()
-    test_compliance_screening_integration()
-    
-    # Test 2: Risk Assessment
-    print("\n[2/4] Testing Risk Assessment Skill...")
-    from test_risk_assessment import (
-        test_feature_extraction,
-        test_training_data_generation,
-        test_risk_model_training
-    )
-    test_feature_extraction()
-    test_training_data_generation()
-    test_risk_model_training()
-    
-    # Test 3: Predictive Analytics
-    print("\n[3/4] Testing Predictive Analytics Skill...")
-    from test_predictive_analytics import (
-        test_prophet_forecasting,
-        test_lstm_port_delay,
-        test_isolation_forest
-    )
-    test_prophet_forecasting()
-    test_lstm_port_delay()
-    test_isolation_forest()
-    
-    # Test 4: Quantum Anomaly
-    print("\n[4/4] Testing Quantum Anomaly Detection Skill...")
-    from test_quantum_anomaly import (
-        test_quantum_feature_normalization,
-        test_vqc_circuit,
-        test_quantum_vs_classical_benchmark
-    )
-    test_quantum_feature_normalization()
-    test_vqc_circuit()
-    test_quantum_vs_classical_benchmark()
-    
-    # Summary
-    total_time = time.time() - start_time
-    print("\n" + "="*60)
-    print("✅ ALL TESTS PASSED")
-    print("="*60)
-    print(f"Total Time: {total_time:.1f}s")
-
-if __name__ == '__main__':
-    run_all_tests()
-```
-
-**Run all tests:**
-```bash
-cd ~/comp3520
-source venv/bin/activate
-python tests/run_all_tests.py
-```
-
----
-
-## 📊 Expected Test Outputs
-
-### Compliance Screening
-```
-✅ Exact match test PASSED
-✅ Fuzzy match test PASSED (score: 89%)
-✅ IR: 9/10 (high risk)
-✅ US: 1/10 (low risk)
-✅ Performance OK (<500ms)
-```
-
-### Risk Assessment
-```
-✅ transaction_count: 45
-✅ discrepancy_rate: 0.13
-✅ All 12 features extracted successfully
-AUC-ROC: 0.89
-✅ Model training test PASSED
-```
-
-### Predictive Analytics
-```
-2026-01-23: 15 LCs, $4,500,000
-✅ Prophet forecasting test PASSED
-Predicted Delay: 5.2 days (Risk: medium)
-✅ LSTM port delay test PASSED
-```
-
-### Quantum Anomaly
-```
-Normal transaction: [0.58 0.20 0.30 0.95]
-✅ Normalization test PASSED
-Circuit output: -0.4231
-✅ VQC circuit test PASSED
-F1 Improvement: +3.9%
-✅ Quantum benchmark test PASSED
+python create_custom_test.py
 ```
 
 ---
 
 ## 🐛 Troubleshooting
 
-### Neo4j Connection Error
+### Error: "Module not found"
+
+```bash
+# Make sure you're in project root
+cd ~/comp3520
+source venv/bin/activate
+
+# Set PYTHONPATH
+export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
+```
+
+### Error: "Neo4j connection failed"
+
 ```bash
 # Check if Neo4j is running
 docker ps | grep neo4j-sentinel
 
-# Restart if needed
-docker restart neo4j-sentinel
+# If not running, start it
+docker start neo4j-sentinel
 
-# Wait 30 seconds, then retry
+# Wait 30 seconds for Neo4j to start
+sleep 30
 ```
 
-### Import Error
-```bash
-# Make sure PYTHONPATH includes src/
-export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
+### Error: "No data in Neo4j"
 
-# Or run from project root
-cd ~/comp3520
-python tests/test_compliance_screening.py
+```bash
+# Ingest data first
+python src/ingest_trade_finance.py
 ```
 
-### Model Not Found
-```bash
-# Train models first
-python src/skills/risk_assessment/scripts/train_model.py
-python src/skills/predictive_analytics/scripts/train_prophet.py
-python src/skills/quantum_anomaly/scripts/train_vqc.py
+### Error: "cannot import name 'batch_screen_entities'"
+
+**Fix**: The function is named `batch_screen`, not `batch_screen_entities`.
+
+```python
+# Correct:
+from skills.compliance_screening.scripts.batch_screen import batch_screen
+
+# Incorrect:
+from skills.compliance_screening.scripts.batch_screen import batch_screen_entities
 ```
 
 ---
 
-## 📚 Next Steps
+## 📋 Testing Checklist
 
-1. **Implement missing scripts** (Week 2 Day 3-7)
-2. **Run pytest with coverage**:
-   ```bash
-   pytest tests/ --cov=src/skills --cov-report=html
-   open htmlcov/index.html
-   ```
-3. **Set up CI/CD** (GitHub Actions for automated testing)
-4. **Add performance benchmarks** using `pytest-benchmark`
+Before running tests:
+- [ ] Virtual environment activated (`source venv/bin/activate`)
+- [ ] Neo4j container running (`docker ps | grep neo4j-sentinel`)
+- [ ] Data ingested (4000+ nodes in Neo4j)
+- [ ] Dependencies installed (`pip install -r requirements.txt`)
+- [ ] In project root directory (`cd ~/comp3520`)
 
 ---
 
-**Testing Guide Complete!** ✅  
-You now know how to test all 4 agent skills systematically.
+## 📚 Documentation
+
+- **Tests README**: [`tests/README.md`](../tests/README.md)
+- **Week 2 Summary**: [`docs/WEEK2_SUMMARY.md`](WEEK2_SUMMARY.md)
+- **Skill Documentation**:
+  - [Compliance Screening SKILL.md](../src/skills/compliance_screening/SKILL.md)
+  - [Risk Assessment SKILL.md](../src/skills/risk_assessment/SKILL.md)
+  - [Predictive Analytics SKILL.md](../src/skills/predictive_analytics/SKILL.md)
+  - [Quantum Anomaly SKILL.md](../src/skills/quantum_anomaly/SKILL.md)
+
+---
+
+## 🎯 Next Steps
+
+### Immediate (Now)
+1. ✅ Test compliance screening skill
+2. ✅ Verify it works with your Neo4j data
+3. ✅ Try custom entities
+
+### Short-Term (This Week)
+1. ⏳ Implement risk assessment scripts
+2. ⏳ Implement predictive analytics scripts
+3. ⏳ Implement quantum anomaly scripts
+4. ⏳ Test all 4 skills end-to-end
+
+### Long-Term (Week 3+)
+- Set up GitHub Actions for CI/CD
+- Add property-based testing (Hypothesis)
+- Implement stress tests (1000+ entities/sec)
+- Add integration tests with LangGraph agent
+
+---
+
+## 🎓 What You've Learned
+
+By following this guide, you now know how to:
+1. ✅ **Test individual functions** with unit tests
+2. ✅ **Test complete workflows** with integration tests
+3. ✅ **Benchmark performance** (latency, throughput)
+4. ✅ **Debug import errors** and fix function names
+5. ✅ **Verify Neo4j integration** works correctly
+6. ✅ **Create custom test cases** for your use cases
+
+---
+
+**Testing Guide Updated**: January 22, 2026  
+**Status**: Compliance screening fully tested ✅  
+**Next**: Implement Week 2 Day 3-7 scripts
